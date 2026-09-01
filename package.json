@@ -1,0 +1,39 @@
+{
+  "name": "aty-whatsapp-agent",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "predev": "npm run build:prompts",
+    "dev": "wrangler dev",
+    "build:prompts": "node scripts/build-prompts.mjs",
+    "pretypecheck": "npm run build:prompts",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier . --write",
+    "format:check": "prettier . --check",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "check": "npm run build:prompts && npm run typecheck && npm run lint && npm run format:check && npm run test && wrangler deploy --dry-run",
+    "predeploy": "npm run check",
+    "deploy": "wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply aty-whatsapp-agent-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply aty-whatsapp-agent-db --remote"
+  },
+  "dependencies": {
+    "hono": "^4.6.16",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260901.1",
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^22.10.5",
+    "@vitest/coverage-v8": "^2.1.8",
+    "eslint": "^9.17.0",
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.19.1",
+    "vitest": "^2.1.8",
+    "wrangler": "^4.128.0"
+  }
+}
