@@ -11,6 +11,10 @@ const envSchema = z
     UAZAPI_BASE_URL: z.string().optional(),
     UAZAPI_TOKEN: z.string().optional(),
     UAZAPI_INSTANCE_ID: z.string().optional(),
+    UAZAPI_DEBUG_PAYLOAD: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((value) => value === 'true'),
     WEBHOOK_AUTH_MODE: z.enum(['off', 'header']).default('header'),
     WEBHOOK_SECRET: z.string().optional(),
     ADMIN_API_KEY: z.string().min(1).optional(),

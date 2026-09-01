@@ -1,5 +1,6 @@
 import { WebhookEventsRepository } from '../repositories/webhook-events.repository';
 import { arbitraryJsonSchema } from '../schemas/webhook.schemas';
+import { getConfig } from '../config/env';
 import { sha256Hex } from '../lib/crypto';
 import { AppError } from '../lib/errors';
 import { createLogger } from '../lib/logger';
@@ -17,6 +18,7 @@ export class WebhookService {
   }
 
   async captureUazapiEvent(request: Request, context: RequestContext) {
+    const config = getConfig(this.env);
     const logger = createLogger(this.env, context.requestId);
     const contentLength = Number(request.headers.get('content-length') ?? '0');
     if (contentLength > maxBodyBytes) {
@@ -58,6 +60,14 @@ export class WebhookService {
     }
 
     const payloadSha256 = await sha256Hex(rawPayload);
+    if (config.UAZAPI_DEBUG_PAYLOAD) {
+      logger.warnDiagnosticPayload('uazapi.debug_payload', {
+        provider: 'uazapi',
+        payload_sha256: payloadSha256,
+        payload: validJson.data
+      });
+    }
+
     const receivedAt = utcNow();
     const duplicate = await this.repository.findByPayloadSha256(payloadSha256);
     if (duplicate) {

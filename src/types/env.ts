@@ -7,6 +7,7 @@ export interface Env {
   UAZAPI_BASE_URL?: string;
   UAZAPI_TOKEN?: string;
   UAZAPI_INSTANCE_ID?: string;
+  UAZAPI_DEBUG_PAYLOAD?: string;
   WEBHOOK_AUTH_MODE?: string;
   WEBHOOK_SECRET?: string;
   ADMIN_API_KEY?: string;

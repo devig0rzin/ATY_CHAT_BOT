@@ -10,6 +10,15 @@ const levelRank: Record<LogLevel, number> = {
 };
 
 const secretKeys = ['OPENAI_API_KEY', 'UAZAPI_TOKEN', 'ADMIN_API_KEY', 'WEBHOOK_SECRET'];
+const credentialLikeKeys = new Set([
+  'token',
+  'apikey',
+  'authorization',
+  'password',
+  'secret',
+  'accesstoken',
+  'refreshtoken'
+]);
 
 export class Logger {
   constructor(
@@ -30,23 +39,30 @@ export class Logger {
     this.write('warn', event, fields);
   }
 
+  warnDiagnosticPayload(event: string, fields: Record<string, unknown> = {}) {
+    this.write('warn', event, fields, redactCredentialFields, true);
+  }
+
   error(event: string, fields: Record<string, unknown> = {}) {
     this.write('error', event, fields);
   }
 
-  private write(level: LogLevel, event: string, fields: Record<string, unknown>) {
-    if (levelRank[level] < levelRank[this.minLevel]) return;
+  private write(
+    level: LogLevel,
+    event: string,
+    fields: Record<string, unknown>,
+    redactForLog: (value: unknown) => unknown = (value) => redact(value, this.logMessageContent),
+    force = false
+  ) {
+    if (!force && levelRank[level] < levelRank[this.minLevel]) return;
     console[level === 'debug' ? 'log' : level](
       JSON.stringify(
-        redact(
-          {
-            level,
-            event,
-            request_id: this.requestId,
-            ...fields
-          },
-          this.logMessageContent
-        )
+        redactForLog({
+          level,
+          event,
+          request_id: this.requestId,
+          ...fields
+        })
       )
     );
   }
@@ -76,4 +92,20 @@ export function redact(value: unknown, logMessageContent = false): unknown {
       return [key, redact(raw, logMessageContent)];
     })
   );
+}
+
+export function redactCredentialFields(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map((item) => redactCredentialFields(item));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, raw]) => {
+      if (isCredentialLikeKey(key)) return [key, '[REDACTED]'];
+      return [key, redactCredentialFields(raw)];
+    })
+  );
+}
+
+function isCredentialLikeKey(key: string): boolean {
+  const normalized = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return credentialLikeKeys.has(normalized);
 }
