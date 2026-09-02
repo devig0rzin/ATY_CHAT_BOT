@@ -1,5 +1,5 @@
 import { AppError } from '../../lib/errors';
-import { aiDecisionSchema, type AIDecision } from './schemas';
+import { aiDecisionJsonSchema, aiDecisionSchema, type AIDecision } from './schemas';
 import type { AppConfig } from '../../config/env';
 
 export interface AIProvider {
@@ -106,51 +106,3 @@ export class OpenAIProvider implements AIProvider {
     }
   }
 }
-
-const nullableString = { anyOf: [{ type: 'string' }, { type: 'null' }] };
-
-const aiDecisionJsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'should_reply',
-    'reply',
-    'intent',
-    'confidence',
-    'handoff_requested',
-    'handoff_reason',
-    'lead_patch',
-    'memory_patch'
-  ],
-  properties: {
-    should_reply: { type: 'boolean' },
-    reply: { type: 'string' },
-    intent: { type: 'string' },
-    confidence: { type: 'number', minimum: 0, maximum: 1 },
-    handoff_requested: { type: 'boolean' },
-    handoff_reason: nullableString,
-    lead_patch: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['name', 'company', 'segment', 'service_interest', 'budget_status', 'urgency'],
-      properties: {
-        name: nullableString,
-        company: nullableString,
-        segment: nullableString,
-        service_interest: nullableString,
-        budget_status: nullableString,
-        urgency: nullableString
-      }
-    },
-    memory_patch: {
-      type: 'object',
-      additionalProperties: false,
-      required: ['summary', 'facts_to_add', 'open_loops'],
-      properties: {
-        summary: nullableString,
-        facts_to_add: { type: 'array', items: { type: 'string' } },
-        open_loops: { type: 'array', items: { type: 'string' } }
-      }
-    }
-  }
-} as const;

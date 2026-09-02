@@ -9,10 +9,17 @@ const booleanStringSchema = z
 
 const envSchema = z
   .object({
-    AI_MODE: z.enum(['mock', 'openai']).default('mock'),
+    APP_ENV: z.enum(['local', 'production']).default('production'),
+    AI_MODE: z.enum(['mock', 'openai', 'openrouter']).default('mock'),
     OPENAI_API_KEY: z.string().optional(),
     OPENAI_MODEL: z.string().optional(),
     OPENAI_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(600),
+    OPENROUTER_API_KEY: z.string().optional(),
+    OPENROUTER_MODEL: z.string().default('openrouter/free'),
+    OPENROUTER_BASE_URL: z.string().url().default('https://openrouter.ai/api/v1'),
+    AI_TEMPERATURE: z.coerce.number().min(0).max(2).default(0.4),
+    AI_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(30000),
+    LOCAL_DEV_ROUTES_ENABLED: booleanStringSchema,
     UAZAPI_BASE_URL: z.string().optional(),
     UAZAPI_TOKEN: z.string().optional(),
     UAZAPI_INSTANCE_ID: z.string().optional(),

@@ -65,3 +65,38 @@ npm.cmd run lint
 npm.cmd run test
 npm.cmd run check
 ```
+
+## Local OpenRouter AI Test
+
+OpenRouter testing is local-only and must not be connected to the UAZAPI webhook until the real provider payload schema is validated.
+
+Add these local values to `.dev.vars` manually when you want to run the real OpenRouter test:
+
+```text
+APP_ENV=local
+AI_MODE=openrouter
+OPENROUTER_API_KEY=<LOCAL SECRET>
+OPENROUTER_MODEL=openrouter/free
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+AI_TEMPERATURE=0.4
+AI_REQUEST_TIMEOUT_MS=30000
+LOCAL_DEV_ROUTES_ENABLED=true
+```
+
+Never commit `.dev.vars` and never paste the API key into chat or logs.
+
+Run the local Worker:
+
+```powershell
+npm.cmd run dev -- --ip 127.0.0.1 --port 8787
+```
+
+Run the local AI test:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-ai-local.ps1
+```
+
+The default model `openrouter/free` is intended for cheap/free development. OpenRouter may apply rate limits or route to different free model capacity depending on account and provider availability. Change `OPENROUTER_MODEL` in `.dev.vars` without changing source code.
+
+`POST /dev/ai-test` is available only when `APP_ENV=local` and `LOCAL_DEV_ROUTES_ENABLED=true`. Otherwise it behaves as not found.

@@ -30,6 +30,7 @@ npm run dev
 ```
 
 Local-first troubleshooting is documented in `docs/LOCAL_DEVELOPMENT.md`.
+AI provider details are documented in `docs/AI.md`.
 
 Health check:
 

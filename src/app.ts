@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { errorHandler } from './middleware/error-handler';
 import { requestIdMiddleware } from './middleware/request-id';
 import { adminRoutes } from './routes/admin';
+import { devRoutes } from './routes/dev';
 import { healthRoutes } from './routes/health';
 import { rootRoutes } from './routes/root';
 import { uazapiWebhookRoutes } from './routes/uazapi-webhook';
@@ -17,6 +18,7 @@ app.route('/', rootRoutes);
 app.route('/health', healthRoutes);
 app.route('/webhooks/uazapi', uazapiWebhookRoutes);
 app.route('/admin', adminRoutes);
+app.route('/dev', devRoutes);
 
 app.notFound((c) =>
   c.json(
