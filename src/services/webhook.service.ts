@@ -1,6 +1,6 @@
 import { WebhookEventsRepository } from '../repositories/webhook-events.repository';
 import { arbitraryJsonSchema } from '../schemas/webhook.schemas';
-import { getConfig } from '../config/env';
+import { getConfig, isEnvConfigured } from '../config/env';
 import { sha256Hex } from '../lib/crypto';
 import { AppError } from '../lib/errors';
 import { createLogger } from '../lib/logger';
@@ -60,8 +60,13 @@ export class WebhookService {
     }
 
     const payloadSha256 = await sha256Hex(rawPayload);
+    logger.warnDiagnostic('uazapi.debug_config', {
+      debug_payload_configured: isEnvConfigured(this.env.UAZAPI_DEBUG_PAYLOAD),
+      debug_payload_resolved: config.UAZAPI_DEBUG_PAYLOAD
+    });
+
     if (config.UAZAPI_DEBUG_PAYLOAD) {
-      logger.warnDiagnosticPayload('uazapi.debug_payload', {
+      logger.warnDiagnostic('uazapi.debug_payload', {
         provider: 'uazapi',
         payload_sha256: payloadSha256,
         payload: validJson.data

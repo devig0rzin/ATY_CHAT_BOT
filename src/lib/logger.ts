@@ -39,7 +39,7 @@ export class Logger {
     this.write('warn', event, fields);
   }
 
-  warnDiagnosticPayload(event: string, fields: Record<string, unknown> = {}) {
+  warnDiagnostic(event: string, fields: Record<string, unknown> = {}) {
     this.write('warn', event, fields, redactCredentialFields, true);
   }
 

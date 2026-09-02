@@ -2,6 +2,11 @@ import { z } from 'zod';
 import { AppError } from '../lib/errors';
 import type { Env } from '../types/env';
 
+const booleanStringSchema = z
+  .string()
+  .optional()
+  .transform((value) => parseBooleanEnv(value));
+
 const envSchema = z
   .object({
     AI_MODE: z.enum(['mock', 'openai']).default('mock'),
@@ -11,18 +16,12 @@ const envSchema = z
     UAZAPI_BASE_URL: z.string().optional(),
     UAZAPI_TOKEN: z.string().optional(),
     UAZAPI_INSTANCE_ID: z.string().optional(),
-    UAZAPI_DEBUG_PAYLOAD: z
-      .enum(['true', 'false'])
-      .default('false')
-      .transform((value) => value === 'true'),
+    UAZAPI_DEBUG_PAYLOAD: booleanStringSchema,
     WEBHOOK_AUTH_MODE: z.enum(['off', 'header']).default('header'),
     WEBHOOK_SECRET: z.string().optional(),
     ADMIN_API_KEY: z.string().min(1).optional(),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
-    LOG_MESSAGE_CONTENT: z
-      .enum(['true', 'false'])
-      .default('false')
-      .transform((value) => value === 'true'),
+    LOG_MESSAGE_CONTENT: booleanStringSchema,
     AI_RECENT_MESSAGE_LIMIT: z.coerce.number().int().positive().default(12)
   })
   .superRefine((env, ctx) => {
@@ -55,4 +54,20 @@ export function getConfig(env: Env): AppConfig {
     });
   }
   return parsed.data;
+}
+
+export function parseBooleanEnv(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return false;
+  if (normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on') {
+    return true;
+  }
+  if (normalized === 'false' || normalized === '0' || normalized === 'no' || normalized === 'off') {
+    return false;
+  }
+  return false;
+}
+
+export function isEnvConfigured(value: string | undefined): boolean {
+  return value !== undefined && value.trim() !== '';
 }

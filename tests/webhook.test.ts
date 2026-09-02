@@ -60,6 +60,10 @@ describe('UAZAPI webhook capture mode', () => {
     });
 
     expect(response.status).toBe(202);
+    expect(parseLog(warn.mock.calls, 'uazapi.debug_config')).toMatchObject({
+      debug_payload_configured: false,
+      debug_payload_resolved: false
+    });
     expect(warn.mock.calls.some(([entry]) => String(entry).includes('uazapi.debug_payload'))).toBe(
       false
     );
@@ -81,6 +85,32 @@ describe('UAZAPI webhook capture mode', () => {
     );
 
     expect(response.status).toBe(202);
+    expect(parseLog(warn.mock.calls, 'uazapi.debug_config')).toMatchObject({
+      debug_payload_configured: true,
+      debug_payload_resolved: false
+    });
+    expect(warn.mock.calls.some(([entry]) => String(entry).includes('uazapi.debug_payload'))).toBe(
+      false
+    );
+  });
+
+  it.each(['0', 'no', 'off'])('does not debug log payload when debug flag is %s', async (value) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const response = await request(
+      '/webhooks/uazapi',
+      {
+        method: 'POST',
+        body: JSON.stringify({ event: 'message.received' }),
+        headers: { 'content-type': 'application/json' }
+      },
+      { ...testEnv, UAZAPI_DEBUG_PAYLOAD: value }
+    );
+
+    expect(response.status).toBe(202);
+    expect(parseLog(warn.mock.calls, 'uazapi.debug_config')).toMatchObject({
+      debug_payload_configured: true,
+      debug_payload_resolved: false
+    });
     expect(warn.mock.calls.some(([entry]) => String(entry).includes('uazapi.debug_payload'))).toBe(
       false
     );
@@ -99,12 +129,39 @@ describe('UAZAPI webhook capture mode', () => {
     );
 
     const body = (await response.json()) as AnyBody;
-    const debugLog = parseDebugPayloadLog(warn.mock.calls);
+    expect(parseLog(warn.mock.calls, 'uazapi.debug_config')).toMatchObject({
+      debug_payload_configured: true,
+      debug_payload_resolved: true
+    });
+    const debugLog = parseLog(warn.mock.calls, 'uazapi.debug_payload');
     expect(response.status).toBe(202);
     expect(debugLog).toMatchObject({
       event: 'uazapi.debug_payload',
       provider: 'uazapi',
       payload_sha256: body.data.payload_sha256,
+      payload: { event: 'message.received', message: { text: 'inspect me' } }
+    });
+  });
+
+  it.each(['1', 'yes', 'on'])('debug logs parsed payload when debug flag is %s', async (value) => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const response = await request(
+      '/webhooks/uazapi',
+      {
+        method: 'POST',
+        body: JSON.stringify({ event: 'message.received', message: { text: 'inspect me' } }),
+        headers: { 'content-type': 'application/json' }
+      },
+      { ...testEnv, UAZAPI_DEBUG_PAYLOAD: value }
+    );
+
+    expect(response.status).toBe(202);
+    expect(parseLog(warn.mock.calls, 'uazapi.debug_config')).toMatchObject({
+      debug_payload_configured: true,
+      debug_payload_resolved: true
+    });
+    expect(parseLog(warn.mock.calls, 'uazapi.debug_payload')).toMatchObject({
+      event: 'uazapi.debug_payload',
       payload: { event: 'message.received', message: { text: 'inspect me' } }
     });
   });
@@ -132,7 +189,7 @@ describe('UAZAPI webhook capture mode', () => {
       { ...testEnv, UAZAPI_DEBUG_PAYLOAD: 'true' }
     );
 
-    const debugLog = parseDebugPayloadLog(warn.mock.calls);
+    const debugLog = parseLog(warn.mock.calls, 'uazapi.debug_payload');
     expect(debugLog.payload).toMatchObject({
       token: '[REDACTED]',
       nested: {
@@ -167,7 +224,7 @@ describe('UAZAPI webhook capture mode', () => {
       { ...testEnv, UAZAPI_DEBUG_PAYLOAD: 'true', LOG_MESSAGE_CONTENT: 'false' }
     );
 
-    const debugLog = parseDebugPayloadLog(warn.mock.calls);
+    const debugLog = parseLog(warn.mock.calls, 'uazapi.debug_payload');
     expect(debugLog.payload).toMatchObject({
       event: 'message.received',
       messageId: 'wamid-123',
@@ -197,10 +254,8 @@ describe('UAZAPI webhook capture mode', () => {
   });
 });
 
-function parseDebugPayloadLog(calls: unknown[][]): AnyBody {
-  const rawLog = calls
-    .map(([entry]) => String(entry))
-    .find((entry) => entry.includes('uazapi.debug_payload'));
+function parseLog(calls: unknown[][], event: string): AnyBody {
+  const rawLog = calls.map(([entry]) => String(entry)).find((entry) => entry.includes(event));
   expect(rawLog).toBeDefined();
   return JSON.parse(rawLog as string) as AnyBody;
 }
