@@ -20,6 +20,15 @@ export class WebhookService {
   async captureUazapiEvent(request: Request, context: RequestContext) {
     const config = getConfig(this.env);
     const logger = createLogger(this.env, context.requestId);
+    logger.warnDiagnostic('uazapi.runtime_env_probe', {
+      uazapi_debug_payload_present: isEnvConfigured(this.env.UAZAPI_DEBUG_PAYLOAD),
+      uazapi_debug_payload_type: typeof this.env.UAZAPI_DEBUG_PAYLOAD,
+      uazapi_debug_payload_value: this.env.UAZAPI_DEBUG_PAYLOAD ?? '',
+      ai_mode_present: isEnvConfigured(this.env.AI_MODE),
+      log_level_present: isEnvConfigured(this.env.LOG_LEVEL),
+      admin_api_key_present: isEnvConfigured(this.env.ADMIN_API_KEY)
+    });
+
     const contentLength = Number(request.headers.get('content-length') ?? '0');
     if (contentLength > maxBodyBytes) {
       throw new AppError({

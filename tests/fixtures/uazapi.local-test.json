@@ -1,0 +1,13 @@
+{
+  "_fixture_note": "LOCAL_TEST_FIXTURE_NOT_REAL_UAZAPI_SCHEMA",
+  "event": "local_test",
+  "message": {
+    "id": "local-message-001",
+    "text": "Ola, este e um teste local"
+  },
+  "sender": {
+    "phone": "5511999999999"
+  },
+  "fromMe": false,
+  "timestamp": "2026-09-02T15:00:00.000Z"
+}

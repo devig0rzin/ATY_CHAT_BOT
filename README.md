@@ -29,6 +29,8 @@ npm run build:prompts
 npm run dev
 ```
 
+Local-first troubleshooting is documented in `docs/LOCAL_DEVELOPMENT.md`.
+
 Health check:
 
 ```bash

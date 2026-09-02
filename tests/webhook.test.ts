@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { request, testEnv } from './helpers';
+import localWebhookFixture from './fixtures/uazapi.local-test.json';
 
 type AnyBody = Record<string, any>;
 
@@ -60,6 +61,14 @@ describe('UAZAPI webhook capture mode', () => {
     });
 
     expect(response.status).toBe(202);
+    expect(parseLog(warn.mock.calls, 'uazapi.runtime_env_probe')).toMatchObject({
+      uazapi_debug_payload_present: false,
+      uazapi_debug_payload_type: 'undefined',
+      uazapi_debug_payload_value: '',
+      ai_mode_present: true,
+      log_level_present: true,
+      admin_api_key_present: true
+    });
     expect(parseLog(warn.mock.calls, 'uazapi.debug_config')).toMatchObject({
       debug_payload_configured: false,
       debug_payload_resolved: false
@@ -85,6 +94,14 @@ describe('UAZAPI webhook capture mode', () => {
     );
 
     expect(response.status).toBe(202);
+    expect(parseLog(warn.mock.calls, 'uazapi.runtime_env_probe')).toMatchObject({
+      uazapi_debug_payload_present: true,
+      uazapi_debug_payload_type: 'string',
+      uazapi_debug_payload_value: 'false',
+      ai_mode_present: true,
+      log_level_present: true,
+      admin_api_key_present: true
+    });
     expect(parseLog(warn.mock.calls, 'uazapi.debug_config')).toMatchObject({
       debug_payload_configured: true,
       debug_payload_resolved: false
@@ -129,6 +146,14 @@ describe('UAZAPI webhook capture mode', () => {
     );
 
     const body = (await response.json()) as AnyBody;
+    expect(parseLog(warn.mock.calls, 'uazapi.runtime_env_probe')).toMatchObject({
+      uazapi_debug_payload_present: true,
+      uazapi_debug_payload_type: 'string',
+      uazapi_debug_payload_value: 'true',
+      ai_mode_present: true,
+      log_level_present: true,
+      admin_api_key_present: true
+    });
     expect(parseLog(warn.mock.calls, 'uazapi.debug_config')).toMatchObject({
       debug_payload_configured: true,
       debug_payload_resolved: true
@@ -252,10 +277,65 @@ describe('UAZAPI webhook capture mode', () => {
     expect(response.status).toBe(202);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
+
+  it('emits debug payload for the local fixture without treating it as a schema', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const response = await request(
+      '/webhooks/uazapi',
+      {
+        method: 'POST',
+        body: JSON.stringify(localWebhookFixture),
+        headers: { 'content-type': 'application/json' }
+      },
+      {
+        ...testEnv,
+        UAZAPI_DEBUG_PAYLOAD: 'true',
+        ADMIN_API_KEY: 'local-development-only',
+        LOG_LEVEL: 'debug'
+      }
+    );
+
+    expect(response.status).toBe(202);
+    expect(parseLog(warn.mock.calls, 'uazapi.runtime_env_probe')).toMatchObject({
+      uazapi_debug_payload_present: true,
+      uazapi_debug_payload_type: 'string',
+      uazapi_debug_payload_value: 'true',
+      ai_mode_present: true,
+      log_level_present: true,
+      admin_api_key_present: true
+    });
+    expect(parseLog(warn.mock.calls, 'uazapi.debug_config')).toMatchObject({
+      debug_payload_configured: true,
+      debug_payload_resolved: true
+    });
+    expect(parseLog(warn.mock.calls, 'uazapi.debug_payload')).toMatchObject({
+      payload: {
+        _fixture_note: 'LOCAL_TEST_FIXTURE_NOT_REAL_UAZAPI_SCHEMA',
+        event: 'local_test',
+        message: {
+          id: 'local-message-001',
+          text: 'Ola, este e um teste local'
+        },
+        sender: {
+          phone: '5511999999999'
+        },
+        fromMe: false,
+        timestamp: '2026-09-02T15:00:00.000Z'
+      }
+    });
+  });
 });
 
 function parseLog(calls: unknown[][], event: string): AnyBody {
-  const rawLog = calls.map(([entry]) => String(entry)).find((entry) => entry.includes(event));
+  const rawLog = calls
+    .map(([entry]) => String(entry))
+    .find((entry) => {
+      try {
+        return (JSON.parse(entry) as AnyBody).event === event;
+      } catch {
+        return false;
+      }
+    });
   expect(rawLog).toBeDefined();
   return JSON.parse(rawLog as string) as AnyBody;
 }
