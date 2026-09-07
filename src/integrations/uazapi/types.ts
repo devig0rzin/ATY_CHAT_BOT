@@ -5,10 +5,19 @@ export interface SendTextInput {
 }
 
 export interface NormalizedUazapiInboundMessage {
-  providerMessageId?: string;
-  number: string;
+  provider: 'uazapi';
+  event: 'messages';
+  messageId?: string;
+  phone: string;
+  senderName?: string;
   text: string;
   fromMe: boolean;
+  wasSentByApi: boolean;
+  isGroup: boolean;
+  messageType?: string;
+  timestamp?: number;
+  instanceName?: string;
+  owner?: string;
 }
 
 export interface SendImageInput {

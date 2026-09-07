@@ -1,0 +1,26 @@
+{
+  "EventType": "messages",
+  "instanceName": "TEST_INSTANCE",
+  "owner": "5511000000000",
+  "message": {
+    "fromMe": false,
+    "isGroup": false,
+    "wasSentByApi": false,
+    "chatid": "5511999999999@s.whatsapp.net",
+    "content": "oi",
+    "text": "oi",
+    "id": "5511000000000:3EB069931B25E773D0B3BC",
+    "messageid": "3EB069931B25E773D0B3BC",
+    "messageType": "Conversation",
+    "type": "text",
+    "senderName": "Contato Teste",
+    "sender_pn": "5511999999999@s.whatsapp.net",
+    "messageTimestamp": 1788795063000
+  },
+  "chat": {
+    "wa_isGroup": false,
+    "phone": "+55 11 99999-9999",
+    "wa_chatid": "5511999999999@s.whatsapp.net",
+    "wa_contactName": "Contato Teste"
+  }
+}

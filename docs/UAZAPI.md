@@ -1,6 +1,6 @@
 # UAZAPI
 
-UAZAPI outbound support is local-first and currently limited to text sending. The real inbound webhook remains capture-only until the production UAZAPI payload mapping is finalized.
+UAZAPI outbound support is local-first and limited to text sending. The validated inbound payload is normalized from `EventType=messages` and can feed the local autoreply flow when explicitly enabled.
 
 ## Local Configuration
 
@@ -55,6 +55,34 @@ The default is `false`. When disabled, `sendText()` refuses with `UAZAPI_OUTBOUN
 `POST /dev/chat-test` simulates an inbound message, runs the configured AI provider, validates the `AIDecision`, and optionally sends the generated reply through UAZAPI when `send_to_whatsapp=true`.
 
 Both routes return `404` unless `APP_ENV=local` and `LOCAL_DEV_ROUTES_ENABLED=true`.
+
+## Validated Inbound Payload
+
+The adapter maps the real UAZAPI structure as follows:
+
+```text
+EventType                         -> event
+message.messageid (or id)         -> messageId
+message.text (or content)         -> text
+message.sender_pn (or chatid)     -> phone
+message.senderName                -> senderName
+message.fromMe                    -> fromMe
+message.wasSentByApi              -> wasSentByApi
+message.isGroup (or chat flag)    -> isGroup
+message.type (or messageType)     -> messageType
+message.messageTimestamp          -> timestamp
+instanceName                      -> instanceName
+owner                             -> owner
+```
+
+Only `EventType=messages` is eligible for autoreply. Messages sent by this instance,
+sent by the API, group messages, unsupported messages, and empty text are skipped.
+
+The marker for the captured structure is `REAL_UAZAPI_PAYLOAD_STRUCTURE_VALIDATED_2026_09_07`.
+
+When D1 is configured, `message.messageid` is stored as `webhook_events.provider_event_id`
+for persistent deduplication. Without D1, the runtime does not create an in-memory global
+deduplication cache.
 
 ## Errors
 

@@ -7,7 +7,10 @@ import { createLogger } from '../lib/logger';
 import { utcNow } from '../lib/time';
 import { createAIProvider } from '../integrations/openai/client';
 import { createUazapiProvider } from '../integrations/uazapi/client';
-import { normalizeUazapiEvent } from '../integrations/uazapi/normalizer';
+import {
+  getUazapiAutoreplySkipReason,
+  normalizeUazapiEvent
+} from '../integrations/uazapi/normalizer';
 import type { Env } from '../types/env';
 import type { RequestContext } from '../types/api';
 
@@ -85,8 +88,13 @@ export class WebhookService {
       });
     }
 
+    const normalizedInbound = normalizeUazapiEvent(validJson.data);
     const receivedAt = utcNow();
-    const duplicate = await this.repository.findByPayloadSha256(payloadSha256);
+    const duplicateByMessageId = normalizedInbound?.messageId
+      ? await this.repository.findByProviderEventId('uazapi', normalizedInbound.messageId)
+      : false;
+    const duplicate =
+      duplicateByMessageId || (await this.repository.findByPayloadSha256(payloadSha256));
     if (duplicate) {
       logger.info('webhook.duplicate', { provider: 'uazapi', payload_sha256: payloadSha256 });
       return {
@@ -102,6 +110,8 @@ export class WebhookService {
       id: crypto.randomUUID(),
       requestId: context.requestId,
       provider: 'uazapi',
+      providerEventId: normalizedInbound?.messageId,
+      eventType: normalizedInbound?.event,
       payloadSha256,
       payloadJson: rawPayload,
       receivedAt
@@ -138,16 +148,28 @@ export class WebhookService {
 
     const inbound = normalizeUazapiEvent(payload);
     if (!inbound) {
+      const reason = getUazapiAutoreplySkipReason(payload) ?? 'message_not_normalized';
       logger.warn('uazapi.autoreply.skipped', {
         provider: 'uazapi',
-        reason: 'message_not_normalized'
+        reason
       });
-      return { sent: false, reason: 'message_not_normalized' };
+      return { sent: false, reason };
     }
+
+    logger.info('uazapi.message.normalized', {
+      provider: inbound.provider,
+      inbound_event: inbound.event,
+      message_id: inbound.messageId,
+      phone: inbound.phone,
+      from_me: inbound.fromMe,
+      was_sent_by_api: inbound.wasSentByApi,
+      is_group: inbound.isGroup,
+      inbound_type: inbound.messageType
+    });
 
     logger.info('uazapi.autoreply.started', {
       provider: 'uazapi',
-      inbound_message_id: inbound.providerMessageId
+      inbound_message_id: inbound.messageId
     });
 
     const decision = await createAIProvider(this.env).generateReply({
@@ -164,9 +186,9 @@ export class WebhookService {
     }
 
     const result = await createUazapiProvider(this.env, requestId).sendText({
-      number: inbound.number,
+      number: inbound.phone,
       text: decision.reply,
-      replyId: inbound.providerMessageId
+      replyId: inbound.messageId
     });
 
     logger.info('uazapi.autoreply.completed', {

@@ -58,7 +58,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-webhook-l
 
 Direct `.ps1` execution may be blocked by the local Windows execution policy. The command above bypasses that policy only for this local test process.
 
-The fixture is `LOCAL_TEST_FIXTURE_NOT_REAL_UAZAPI_SCHEMA`. It tests local application behavior only. Real UAZAPI cannot call `127.0.0.1` directly, so the real provider payload must be captured later during a controlled integration test.
+The fixture `tests/fixtures/uazapi.real-message.json` preserves the validated UAZAPI
+structure with anonymized identifying fields. The marker is
+`REAL_UAZAPI_PAYLOAD_STRUCTURE_VALIDATED_2026_09_07`.
 
 Expected local webhook log order when `UAZAPI_DEBUG_PAYLOAD=true`:
 
@@ -67,6 +69,11 @@ uazapi.runtime_env_probe
 uazapi.debug_config
 uazapi.debug_payload
 webhook.captured
+uazapi.message.normalized
+ai.request.started
+ai.request.completed
+uazapi.send.started
+uazapi.send.completed
 ```
 
 Wrangler logs are printed in the terminal running `npm.cmd run dev`. Do not paste secrets into local logs.
@@ -83,7 +90,8 @@ npm.cmd run check
 
 ## Local OpenRouter AI Test
 
-OpenRouter testing is local-only and must not be connected to the UAZAPI webhook until the real provider payload schema is validated.
+OpenRouter testing is local-only. The local webhook autoreply remains disabled unless
+`LOCAL_INBOUND_AUTOREPLY_ENABLED=true` is explicitly set.
 
 Add these local values to `.env` manually when you want to run the real OpenRouter test:
 

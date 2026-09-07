@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { request, testEnv } from './helpers';
 import localWebhookFixture from './fixtures/uazapi.local-test.json';
+import realWebhookFixture from './fixtures/uazapi.real-message.json';
 
 type AnyBody = Record<string, any>;
 
@@ -279,6 +280,7 @@ describe('UAZAPI webhook capture mode', () => {
   });
 
   it('auto-replies only when explicitly enabled locally', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const fetch = vi.fn(async (url: string) => {
       if (url.endsWith('/chat/completions')) {
         return new Response(
@@ -331,7 +333,7 @@ describe('UAZAPI webhook capture mode', () => {
       '/webhooks/uazapi',
       {
         method: 'POST',
-        body: JSON.stringify(localWebhookFixture),
+        body: JSON.stringify(realWebhookFixture),
         headers: { 'content-type': 'application/json' }
       },
       {
@@ -344,7 +346,8 @@ describe('UAZAPI webhook capture mode', () => {
         UAZAPI_BASE_URL: 'https://uazapi.test',
         UAZAPI_TOKEN: 'test-token',
         UAZAPI_OUTBOUND_ENABLED: 'true',
-        LOCAL_INBOUND_AUTOREPLY_ENABLED: 'true'
+        LOCAL_INBOUND_AUTOREPLY_ENABLED: 'true',
+        LOG_LEVEL: 'info'
       }
     );
     const body = (await response.json()) as AnyBody;
@@ -360,6 +363,27 @@ describe('UAZAPI webhook capture mode', () => {
       }
     });
     expect(fetch).toHaveBeenCalledTimes(2);
+    expect(parseLog(info.mock.calls, 'uazapi.message.normalized')).toMatchObject({
+      phone: '*********9999',
+      from_me: false,
+      was_sent_by_api: false,
+      is_group: false,
+      inbound_type: 'text'
+    });
+    expect(parseLog(info.mock.calls, 'ai.request.started')).toMatchObject({
+      provider: 'openrouter'
+    });
+    expect(parseLog(info.mock.calls, 'ai.request.completed')).toMatchObject({
+      provider: 'openrouter'
+    });
+    expect(parseLog(info.mock.calls, 'uazapi.send.started')).toMatchObject({
+      provider: 'uazapi',
+      endpoint: '/send/text'
+    });
+    expect(parseLog(info.mock.calls, 'uazapi.send.completed')).toMatchObject({
+      provider: 'uazapi',
+      status: 200
+    });
   });
 
   it('skips local auto-reply for messages sent by this instance', async () => {
@@ -368,7 +392,10 @@ describe('UAZAPI webhook capture mode', () => {
       '/webhooks/uazapi',
       {
         method: 'POST',
-        body: JSON.stringify({ ...localWebhookFixture, fromMe: true }),
+        body: JSON.stringify({
+          ...realWebhookFixture,
+          message: { ...realWebhookFixture.message, fromMe: true }
+        }),
         headers: { 'content-type': 'application/json' }
       },
       {
@@ -382,7 +409,7 @@ describe('UAZAPI webhook capture mode', () => {
     expect(response.status).toBe(202);
     expect(body.data.autoreply).toMatchObject({
       sent: false,
-      reason: 'message_not_normalized'
+      reason: 'from_me'
     });
     expect(fetchSpy).not.toHaveBeenCalled();
   });

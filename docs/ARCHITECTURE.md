@@ -13,7 +13,7 @@ WhatsApp -> UAZAPI -> Cloudflare Worker -> D1
                                 + future UAZAPI outbound messages
 ```
 
-The current implementation is capture mode. It accepts arbitrary JSON for `POST /webhooks/uazapi`, hashes the raw body, logs a structured event, and persists the raw event when `DB` is configured. It does not normalize UAZAPI payloads, call OpenAI, or send WhatsApp messages.
+The webhook accepts arbitrary JSON, hashes the raw body, logs a structured event, and persists the raw event when `DB` is configured. The validated UAZAPI `messages` payload is normalized by the provider adapter. Local autoreply is explicitly gated by `APP_ENV=local` and `LOCAL_INBOUND_AUTOREPLY_ENABLED`; production remains disabled until that operational switch is intentionally enabled.
 
 Architecture choices:
 

@@ -1,88 +1,100 @@
 import type { NormalizedUazapiInboundMessage } from './types';
 
+export type UazapiAutoreplySkipReason =
+  | 'event_not_messages'
+  | 'from_me'
+  | 'sent_by_api'
+  | 'group_message'
+  | 'unsupported_or_empty_message'
+  | 'message_not_normalized';
+
 export function normalizeUazapiEvent(payload: unknown): NormalizedUazapiInboundMessage | undefined {
-  if (!payload || typeof payload !== 'object') return undefined;
+  if (!isRecord(payload) || payload.EventType !== 'messages') return undefined;
 
-  const fromMe = findBoolean(payload, ['fromMe', 'from_me', 'from_me_bool', 'isFromMe']) ?? false;
-  if (fromMe) return undefined;
+  const message = asRecord(payload.message);
+  const chat = asRecord(payload.chat);
+  if (!message) return undefined;
 
-  const text = firstNonEmptyString([
-    findString(payload, ['message.text']),
-    findString(payload, ['message.conversation']),
-    findString(payload, ['message.body']),
-    findString(payload, ['text']),
-    findString(payload, ['body']),
-    findString(payload, ['content']),
-    findString(payload, ['message.extendedTextMessage.text']),
-    findString(payload, ['data.message.text']),
-    findString(payload, ['data.text']),
-    findString(payload, ['data.body'])
-  ]);
+  const fromMe = findBoolean(message, ['fromMe']) ?? false;
+  const wasSentByApi = findBoolean(message, ['wasSentByApi']) ?? false;
+  const isGroup = findBoolean(message, ['isGroup']) ?? findBoolean(chat, ['wa_isGroup']) ?? false;
+  if (fromMe || wasSentByApi || isGroup) return undefined;
 
-  const number = normalizePhone(
-    firstNonEmptyString([
-      findString(payload, ['sender.phone']),
-      findString(payload, ['sender']),
-      findString(payload, ['from']),
-      findString(payload, ['phone']),
-      findString(payload, ['number']),
-      findString(payload, ['jid']),
-      findString(payload, ['remoteJid']),
-      findString(payload, ['key.remoteJid']),
-      findString(payload, ['message.from']),
-      findString(payload, ['data.from']),
-      findString(payload, ['data.sender']),
-      findString(payload, ['data.key.remoteJid'])
-    ])
+  const text = firstNonEmptyString([message.text, message.content]);
+  const phone = normalizePhone(
+    firstNonEmptyString([message.sender_pn, message.chatid, chat?.wa_chatid])
   );
+  if (!text || !phone) return undefined;
 
-  if (!text || !number) return undefined;
-
+  const messageId = firstNonEmptyString([message.messageid, message.id]);
   return {
-    providerMessageId: firstNonEmptyString([
-      findString(payload, ['message.id']),
-      findString(payload, ['messageId']),
-      findString(payload, ['message_id']),
-      findString(payload, ['id']),
-      findString(payload, ['key.id']),
-      findString(payload, ['data.key.id'])
-    ]),
-    number,
+    provider: 'uazapi',
+    event: 'messages',
+    messageId,
+    phone,
+    senderName: firstNonEmptyString([message.senderName, chat?.wa_contactName, chat?.name]),
     text,
-    fromMe
+    fromMe,
+    wasSentByApi,
+    isGroup,
+    messageType: firstNonEmptyString([message.type, message.messageType]),
+    timestamp: typeof message.messageTimestamp === 'number' ? message.messageTimestamp : undefined,
+    instanceName: stringValue(payload.instanceName),
+    owner: stringValue(payload.owner)
   };
 }
 
-function findString(value: unknown, paths: string[]): string | undefined {
-  for (const path of paths) {
-    const found = getPath(value, path);
-    if (typeof found === 'string' && found.trim()) return found.trim();
+export function getUazapiAutoreplySkipReason(
+  payload: unknown
+): UazapiAutoreplySkipReason | undefined {
+  if (!isRecord(payload) || payload.EventType !== 'messages') return 'event_not_messages';
+
+  const message = asRecord(payload.message);
+  const chat = asRecord(payload.chat);
+  if (!message) return 'message_not_normalized';
+  if (message.fromMe === true) return 'from_me';
+  if (message.wasSentByApi === true) return 'sent_by_api';
+  if (message.isGroup === true || chat?.wa_isGroup === true) return 'group_message';
+  if (!firstNonEmptyString([message.text, message.content])) {
+    return 'unsupported_or_empty_message';
+  }
+  if (!normalizePhone(firstNonEmptyString([message.sender_pn, message.chatid, chat?.wa_chatid]))) {
+    return 'message_not_normalized';
   }
   return undefined;
 }
 
-function findBoolean(value: unknown, paths: string[]): boolean | undefined {
-  for (const path of paths) {
-    const found = getPath(value, path);
-    if (typeof found === 'boolean') return found;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return isRecord(value) ? value : undefined;
+}
+
+function findBoolean(value: Record<string, unknown> | undefined, keys: string[]) {
+  if (!value) return undefined;
+  for (const key of keys) {
+    if (typeof value[key] === 'boolean') return value[key];
   }
   return undefined;
 }
 
-function getPath(value: unknown, path: string): unknown {
-  return path.split('.').reduce<unknown>((current, segment) => {
-    if (!current || typeof current !== 'object') return undefined;
-    return (current as Record<string, unknown>)[segment];
-  }, value);
+function firstNonEmptyString(values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
 }
 
-function firstNonEmptyString(values: Array<string | undefined>): string | undefined {
-  return values.find((value) => value !== undefined && value.trim() !== '');
+function stringValue(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
 function normalizePhone(value: string | undefined): string | undefined {
   if (!value) return undefined;
-  const withoutJid = value.split('@')[0];
+  if (/@lid$/i.test(value.trim())) return undefined;
+  const withoutJid = value.trim().replace(/@s\.whatsapp\.net$/i, '');
   const digits = withoutJid.replace(/\D/g, '');
   return digits || undefined;
 }
