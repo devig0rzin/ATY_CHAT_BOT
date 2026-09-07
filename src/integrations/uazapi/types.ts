@@ -1,6 +1,14 @@
 export interface SendTextInput {
-  to: string;
+  number: string;
   text: string;
+  replyId?: string;
+}
+
+export interface NormalizedUazapiInboundMessage {
+  providerMessageId?: string;
+  number: string;
+  text: string;
+  fromMe: boolean;
 }
 
 export interface SendImageInput {

@@ -14,6 +14,8 @@ export interface OpenRouterChatCompletionInput {
   temperature: number;
   timeoutMs: number;
   responseFormat?: unknown;
+  provider?: unknown;
+  plugins?: unknown;
 }
 
 export interface OpenRouterChatCompletionResult {
@@ -43,22 +45,31 @@ export class OpenRouterClient {
           max_tokens: input.maxTokens,
           temperature: input.temperature,
           stream: false,
-          ...(input.responseFormat ? { response_format: input.responseFormat } : {})
+          ...(input.responseFormat ? { response_format: input.responseFormat } : {}),
+          ...(input.provider ? { provider: input.provider } : {}),
+          ...(input.plugins ? { plugins: input.plugins } : {})
         })
       });
 
       if (!response.ok) {
-        throw mapOpenRouterStatus(response.status);
+        throw await mapOpenRouterStatus(response);
       }
 
       const payload = await parseJson(response);
 
-      const content = payload?.choices?.[0]?.message?.content;
-      if (typeof content !== 'string' || !content.trim()) {
+      const rawContent = payload?.choices?.[0]?.message?.content;
+      const content = extractMessageContent(rawContent);
+      if (!content) {
         throw new AppError({
           code: 'OPENROUTER_INVALID_RESPONSE',
           httpStatus: 502,
-          safeMessage: 'OpenRouter response did not include message content'
+          safeMessage: 'OpenRouter response did not include message content',
+          metadata: {
+            status: response.status,
+            model: typeof payload?.model === 'string' ? payload.model : input.model,
+            output_type: Array.isArray(rawContent) ? 'array' : typeof rawContent,
+            finish_reason: payload?.choices?.[0]?.finish_reason
+          }
         });
       }
 
@@ -89,6 +100,28 @@ export class OpenRouterClient {
   }
 }
 
+function extractMessageContent(content: unknown): string | undefined {
+  if (typeof content === 'string' && content.trim()) return content;
+  if (content && typeof content === 'object' && !Array.isArray(content)) {
+    if (Object.keys(content).length === 0) return undefined;
+    return JSON.stringify(content);
+  }
+  if (!Array.isArray(content)) return undefined;
+
+  const text = content
+    .map((part) => {
+      if (!part || typeof part !== 'object') return '';
+      const record = part as Record<string, unknown>;
+      if (typeof record.text === 'string') return record.text;
+      if (typeof record.content === 'string') return record.content;
+      return '';
+    })
+    .join('\n')
+    .trim();
+
+  return text || undefined;
+}
+
 async function parseJson(response: Response): Promise<any> {
   try {
     return await response.json();
@@ -103,13 +136,15 @@ async function parseJson(response: Response): Promise<any> {
   }
 }
 
-function mapOpenRouterStatus(status: number): AppError {
+async function mapOpenRouterStatus(response: Response): Promise<AppError> {
+  const status = response.status;
+  const upstream_error = await readSafeErrorBody(response);
   if (status === 401 || status === 403) {
     return new AppError({
       code: 'OPENROUTER_AUTH_ERROR',
       httpStatus: 401,
       safeMessage: 'OpenRouter authentication failed',
-      metadata: { status }
+      metadata: { status, upstream_error }
     });
   }
   if (status === 429) {
@@ -117,7 +152,7 @@ function mapOpenRouterStatus(status: number): AppError {
       code: 'OPENROUTER_RATE_LIMITED',
       httpStatus: 429,
       safeMessage: 'OpenRouter rate limit reached',
-      metadata: { status }
+      metadata: { status, upstream_error }
     });
   }
   if (status >= 500) {
@@ -125,13 +160,27 @@ function mapOpenRouterStatus(status: number): AppError {
       code: 'OPENROUTER_UPSTREAM_ERROR',
       httpStatus: 502,
       safeMessage: 'OpenRouter upstream error',
-      metadata: { status }
+      metadata: { status, upstream_error }
     });
   }
   return new AppError({
     code: 'OPENROUTER_INVALID_RESPONSE',
     httpStatus: 502,
     safeMessage: 'OpenRouter request failed',
-    metadata: { status }
+    metadata: { status, upstream_error }
   });
+}
+
+async function readSafeErrorBody(response: Response): Promise<unknown> {
+  try {
+    const text = await response.text();
+    if (!text) return undefined;
+    try {
+      return JSON.parse(text);
+    } catch {
+      return text.slice(0, 1000);
+    }
+  } catch {
+    return undefined;
+  }
 }

@@ -24,7 +24,7 @@ export const aiDecisionSchema = z.object({
 
 export type AIDecision = z.infer<typeof aiDecisionSchema>;
 
-const nullableString = { anyOf: [{ type: 'string' }, { type: 'null' }] };
+const nullableString = { type: ['string', 'null'] };
 
 export const aiDecisionJsonSchema = {
   type: 'object',

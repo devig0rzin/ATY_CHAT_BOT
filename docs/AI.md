@@ -24,7 +24,7 @@ OPENROUTER_MODEL=openrouter/free
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 AI_TEMPERATURE=0.4
 AI_REQUEST_TIMEOUT_MS=30000
-OPENAI_MAX_OUTPUT_TOKENS=600
+OPENAI_MAX_OUTPUT_TOKENS=800
 ```
 
 OpenRouter uses `POST /chat/completions` with `Authorization: Bearer <OPENROUTER_API_KEY>`. The project uses native Worker-compatible Web APIs and does not use a heavy SDK.
@@ -54,3 +54,5 @@ Safe logging events:
 - `ai.request.failed`
 
 Logs include provider, model, request ID, duration, and status when relevant. They do not log API keys or full prompts by default.
+
+Local full-pipeline testing is available through `POST /dev/chat-test` when `APP_ENV=local` and `LOCAL_DEV_ROUTES_ENABLED=true`. With `send_to_whatsapp=false`, the route runs only the AI provider and returns the validated `AIDecision`. With `send_to_whatsapp=true`, it also sends the generated reply through UAZAPI, which still requires `UAZAPI_OUTBOUND_ENABLED=true`.

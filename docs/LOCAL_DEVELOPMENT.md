@@ -8,17 +8,32 @@ Install dependencies:
 npm.cmd install
 ```
 
-Create `.dev.vars` with safe local values only:
+Create `.env` with safe local values only. This file is local-only and must never be committed:
 
 ```text
-AI_MODE=mock
+APP_ENV=local
+AI_MODE=openrouter
+OPENROUTER_API_KEY=<LOCAL SECRET>
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_MODEL=openrouter/free
+AI_TEMPERATURE=0.4
+AI_REQUEST_TIMEOUT_MS=30000
 AI_RECENT_MESSAGE_LIMIT=12
+OPENAI_MAX_OUTPUT_TOKENS=800
+UAZAPI_BASE_URL=
+UAZAPI_TOKEN=
+UAZAPI_OUTBOUND_ENABLED=false
+UAZAPI_DEBUG_PAYLOAD=true
+UAZAPI_REQUEST_TIMEOUT_MS=30000
+TEST_WHATSAPP_NUMBER=
+LOCAL_DEV_ROUTES_ENABLED=true
 LOG_LEVEL=debug
 LOG_MESSAGE_CONTENT=false
-UAZAPI_DEBUG_PAYLOAD=true
 WEBHOOK_AUTH_MODE=off
 ADMIN_API_KEY=local-development-only
 ```
+
+Wrangler local development loads `.env`. If `.dev.vars` exists, `.env` is not loaded, so this repo keeps `.dev.vars` ignored only as legacy protection.
 
 Start the Worker locally:
 
@@ -70,7 +85,7 @@ npm.cmd run check
 
 OpenRouter testing is local-only and must not be connected to the UAZAPI webhook until the real provider payload schema is validated.
 
-Add these local values to `.dev.vars` manually when you want to run the real OpenRouter test:
+Add these local values to `.env` manually when you want to run the real OpenRouter test:
 
 ```text
 APP_ENV=local
@@ -83,7 +98,7 @@ AI_REQUEST_TIMEOUT_MS=30000
 LOCAL_DEV_ROUTES_ENABLED=true
 ```
 
-Never commit `.dev.vars` and never paste the API key into chat or logs.
+Never commit `.env` and never paste the API key into chat or logs.
 
 Run the local Worker:
 
@@ -97,6 +112,34 @@ Run the local AI test:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-ai-local.ps1
 ```
 
-The default model `openrouter/free` is intended for cheap/free development. OpenRouter may apply rate limits or route to different free model capacity depending on account and provider availability. Change `OPENROUTER_MODEL` in `.dev.vars` without changing source code.
+The default model `openrouter/free` is intended for cheap/free development. OpenRouter may apply rate limits or route to different free model capacity depending on account and provider availability. Change `OPENROUTER_MODEL` in `.env` without changing source code.
 
 `POST /dev/ai-test` is available only when `APP_ENV=local` and `LOCAL_DEV_ROUTES_ENABLED=true`. Otherwise it behaves as not found.
+
+## Local UAZAPI Outbound Test
+
+Real WhatsApp outbound is guarded by `UAZAPI_OUTBOUND_ENABLED=false` by default. To send one local test message, set `UAZAPI_BASE_URL`, `UAZAPI_TOKEN`, `TEST_WHATSAPP_NUMBER`, and explicitly set `UAZAPI_OUTBOUND_ENABLED=true` in `.env`.
+
+Run:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-uazapi-send-local.ps1
+```
+
+`POST /dev/uazapi-send-test` is available only when `APP_ENV=local` and `LOCAL_DEV_ROUTES_ENABLED=true`; real sending still refuses with `UAZAPI_OUTBOUND_DISABLED` unless the outbound switch is enabled.
+
+## Local Full Chat Test
+
+Run OpenRouter only:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-chat-local.ps1 -Mode ai
+```
+
+Run OpenRouter and then send the generated reply through UAZAPI:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-chat-local.ps1 -Mode whatsapp
+```
+
+`POST /dev/chat-test` simulates inbound WhatsApp text locally. It does not connect to `POST /webhooks/uazapi`.

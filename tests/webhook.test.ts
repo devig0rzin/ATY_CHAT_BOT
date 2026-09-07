@@ -278,6 +278,115 @@ describe('UAZAPI webhook capture mode', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('auto-replies only when explicitly enabled locally', async () => {
+    const fetch = vi.fn(async (url: string) => {
+      if (url.endsWith('/chat/completions')) {
+        return new Response(
+          JSON.stringify({
+            model: 'resolved/free-model',
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    should_reply: true,
+                    reply: 'Resposta local validada.',
+                    intent: 'test',
+                    confidence: 0.9,
+                    handoff_requested: false,
+                    handoff_reason: null,
+                    lead_patch: {
+                      name: null,
+                      company: null,
+                      segment: null,
+                      service_interest: null,
+                      budget_status: null,
+                      urgency: null
+                    },
+                    memory_patch: {
+                      summary: null,
+                      facts_to_add: [],
+                      open_loops: []
+                    }
+                  })
+                }
+              }
+            ]
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+
+      if (url.endsWith('/send/text')) {
+        return new Response(JSON.stringify({ ok: true, id: 'provider-message-1' }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' }
+        });
+      }
+
+      return new Response(JSON.stringify({ error: 'unexpected' }), { status: 500 });
+    });
+    vi.stubGlobal('fetch', fetch);
+
+    const response = await request(
+      '/webhooks/uazapi',
+      {
+        method: 'POST',
+        body: JSON.stringify(localWebhookFixture),
+        headers: { 'content-type': 'application/json' }
+      },
+      {
+        ...testEnv,
+        APP_ENV: 'local',
+        AI_MODE: 'openrouter',
+        OPENROUTER_API_KEY: 'test-key',
+        OPENROUTER_BASE_URL: 'https://openrouter.ai/api/v1',
+        OPENROUTER_MODEL: 'openrouter/free',
+        UAZAPI_BASE_URL: 'https://uazapi.test',
+        UAZAPI_TOKEN: 'test-token',
+        UAZAPI_OUTBOUND_ENABLED: 'true',
+        LOCAL_INBOUND_AUTOREPLY_ENABLED: 'true'
+      }
+    );
+    const body = (await response.json()) as AnyBody;
+
+    expect(response.status).toBe(202);
+    expect(body.data.autoreply).toMatchObject({
+      sent: true,
+      ai_validated: true,
+      result: {
+        provider: 'uazapi',
+        status: 200,
+        providerMessageId: 'provider-message-1'
+      }
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips local auto-reply for messages sent by this instance', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const response = await request(
+      '/webhooks/uazapi',
+      {
+        method: 'POST',
+        body: JSON.stringify({ ...localWebhookFixture, fromMe: true }),
+        headers: { 'content-type': 'application/json' }
+      },
+      {
+        ...testEnv,
+        APP_ENV: 'local',
+        LOCAL_INBOUND_AUTOREPLY_ENABLED: 'true'
+      }
+    );
+    const body = (await response.json()) as AnyBody;
+
+    expect(response.status).toBe(202);
+    expect(body.data.autoreply).toMatchObject({
+      sent: false,
+      reason: 'message_not_normalized'
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it('emits debug payload for the local fixture without treating it as a schema', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const response = await request(

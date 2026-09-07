@@ -10,11 +10,16 @@ export interface Env {
   OPENROUTER_BASE_URL?: string;
   AI_TEMPERATURE?: string;
   AI_REQUEST_TIMEOUT_MS?: string;
+  AI_DEBUG_RESPONSE?: string;
   LOCAL_DEV_ROUTES_ENABLED?: string;
+  LOCAL_INBOUND_AUTOREPLY_ENABLED?: string;
   UAZAPI_BASE_URL?: string;
   UAZAPI_TOKEN?: string;
   UAZAPI_INSTANCE_ID?: string;
+  UAZAPI_OUTBOUND_ENABLED?: string;
   UAZAPI_DEBUG_PAYLOAD?: string;
+  UAZAPI_REQUEST_TIMEOUT_MS?: string;
+  TEST_WHATSAPP_NUMBER?: string;
   WEBHOOK_AUTH_MODE?: string;
   WEBHOOK_SECRET?: string;
   ADMIN_API_KEY?: string;

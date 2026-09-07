@@ -5,6 +5,9 @@ import { sha256Hex } from '../lib/crypto';
 import { AppError } from '../lib/errors';
 import { createLogger } from '../lib/logger';
 import { utcNow } from '../lib/time';
+import { createAIProvider } from '../integrations/openai/client';
+import { createUazapiProvider } from '../integrations/uazapi/client';
+import { normalizeUazapiEvent } from '../integrations/uazapi/normalizer';
 import type { Env } from '../types/env';
 import type { RequestContext } from '../types/api';
 
@@ -111,12 +114,70 @@ export class WebhookService {
       payload_sha256: payloadSha256
     });
 
+    const autoreply = await this.maybeAutoreply(validJson.data, config, logger, context.requestId);
+
     return {
       status: 'received',
       provider: 'uazapi',
       captured: true,
       database_configured: this.repository.configured,
-      payload_sha256: payloadSha256
+      payload_sha256: payloadSha256,
+      ...(autoreply ? { autoreply } : {})
+    };
+  }
+
+  private async maybeAutoreply(
+    payload: unknown,
+    config: ReturnType<typeof getConfig>,
+    logger: ReturnType<typeof createLogger>,
+    requestId: string
+  ) {
+    if (config.APP_ENV !== 'local' || !config.LOCAL_INBOUND_AUTOREPLY_ENABLED) {
+      return undefined;
+    }
+
+    const inbound = normalizeUazapiEvent(payload);
+    if (!inbound) {
+      logger.warn('uazapi.autoreply.skipped', {
+        provider: 'uazapi',
+        reason: 'message_not_normalized'
+      });
+      return { sent: false, reason: 'message_not_normalized' };
+    }
+
+    logger.info('uazapi.autoreply.started', {
+      provider: 'uazapi',
+      inbound_message_id: inbound.providerMessageId
+    });
+
+    const decision = await createAIProvider(this.env).generateReply({
+      message: inbound.text,
+      requestId
+    });
+
+    if (!decision.should_reply || !decision.reply.trim()) {
+      logger.info('uazapi.autoreply.skipped', {
+        provider: 'uazapi',
+        reason: 'ai_no_reply'
+      });
+      return { sent: false, reason: 'ai_no_reply' };
+    }
+
+    const result = await createUazapiProvider(this.env, requestId).sendText({
+      number: inbound.number,
+      text: decision.reply,
+      replyId: inbound.providerMessageId
+    });
+
+    logger.info('uazapi.autoreply.completed', {
+      provider: 'uazapi',
+      status: result.status
+    });
+
+    return {
+      sent: true,
+      ai_validated: true,
+      result
     };
   }
 }
