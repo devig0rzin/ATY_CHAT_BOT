@@ -10,6 +10,13 @@ import { OpenRouterClient } from './client';
 export interface OpenRouterProviderContext {
   message: string;
   requestId: string;
+  memory?: {
+    summary: string | null;
+    facts_json: string | null;
+    open_loops_json: string | null;
+    current_intent: string | null;
+  };
+  recent?: Array<{ direction: string; content: string | null }>;
 }
 
 interface CompletionForParsing {
@@ -53,7 +60,9 @@ export class OpenRouterProvider implements AIProvider {
     });
 
     try {
-      const completion = await this.createCompatibleCompletion(parsedContext.message);
+      const completion = await this.createCompatibleCompletion(
+        buildConversationInput(parsedContext)
+      );
       const decision = this.parseAIDecision(completion, logger);
       Object.assign(decision, { resolved_model: completion.model });
 
@@ -239,6 +248,25 @@ function buildUserPrompt(message: string): string {
     JSON.stringify(aiDecisionJsonSchema),
     `User message: ${message}`
   ].join('\n');
+}
+
+function buildConversationInput(context: OpenRouterProviderContext): string {
+  const memory = context.memory
+    ? `Long-term memory: ${JSON.stringify({ summary: context.memory.summary, facts: safeArray(context.memory.facts_json), open_loops: safeArray(context.memory.open_loops_json), current_intent: context.memory.current_intent })}`
+    : 'Long-term memory: none';
+  const recent = context.recent?.length
+    ? `Recent conversation: ${context.recent.map((item) => `${item.direction}: ${item.content ?? ''}`).join('\n')}`
+    : 'Recent conversation: none';
+  return `${memory}\n${recent}\nCurrent message: ${context.message}`;
+}
+
+function safeArray(value: string | null): string[] {
+  try {
+    const parsed = JSON.parse(value ?? '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 function parseJsonFromModelContent(

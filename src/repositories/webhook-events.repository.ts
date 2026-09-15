@@ -26,8 +26,8 @@ export class WebhookEventsRepository {
     return Boolean(result);
   }
 
-  async create(record: WebhookEventRecord): Promise<void> {
-    if (!this.db) return;
+  async create(record: WebhookEventRecord): Promise<boolean> {
+    if (!this.db) return true;
     try {
       await this.db
         .prepare(
@@ -47,7 +47,9 @@ export class WebhookEventsRepository {
           record.receivedAt
         )
         .run();
+      return true;
     } catch (cause) {
+      if (isDuplicateError(cause)) return false;
       throw new AppError({
         code: 'DATABASE_ERROR',
         httpStatus: 500,
@@ -56,4 +58,8 @@ export class WebhookEventsRepository {
       });
     }
   }
+}
+
+function isDuplicateError(cause: unknown): boolean {
+  return cause instanceof Error && /unique constraint failed/i.test(cause.message);
 }

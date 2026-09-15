@@ -37,16 +37,23 @@ Wrangler local development loads `.env`. If `.dev.vars` exists, `.env` is not lo
 
 Start the Worker locally:
 
-```powershell
+````powershell
 npm.cmd run dev -- --ip 127.0.0.1 --port 8787
-```
+
+Local memory test script:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-memory-local.ps1
+````
+
+````
 
 Health checks:
 
 ```powershell
 Invoke-WebRequest -Uri "http://127.0.0.1:8787/" -UseBasicParsing
 Invoke-WebRequest -Uri "http://127.0.0.1:8787/health" -UseBasicParsing
-```
+````
 
 The `/` route may report `environment: "local-safe"` when `AI_MODE` is not `openai`. This is an intentional safe-development label, not a separate static configuration source.
 

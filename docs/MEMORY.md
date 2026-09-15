@@ -21,3 +21,9 @@ Example long-term memory:
 ```
 
 Vector search is intentionally excluded from the MVP to reduce cost, complexity, and operational surface. The schema can be extended for future RAG after real usage patterns are known.
+
+Local testing:
+
+- Use `npm run dev:local` to run the worker locally with a local D1 binding.
+- Use `scripts/test-memory-local.ps1` to simulate a 3-message conversation against the local worker.
+- Tests in `tests/memory.test.ts` mock repositories and validate that `memory.merge` is invoked with expected facts.

@@ -1,4 +1,10 @@
 import { WebhookEventsRepository } from '../repositories/webhook-events.repository';
+import { ContactsRepository } from '../repositories/contacts.repository';
+import { ConversationsRepository } from '../repositories/conversations.repository';
+import { MessagesRepository } from '../repositories/messages.repository';
+import { MemoryRepository } from '../repositories/memory.repository';
+import { LeadsRepository } from '../repositories/leads.repository';
+import { HandoffsRepository } from '../repositories/handoffs.repository';
 import { arbitraryJsonSchema } from '../schemas/webhook.schemas';
 import { getConfig, isEnvConfigured } from '../config/env';
 import { sha256Hex } from '../lib/crypto';
@@ -13,14 +19,27 @@ import {
 } from '../integrations/uazapi/normalizer';
 import type { Env } from '../types/env';
 import type { RequestContext } from '../types/api';
+import type { NormalizedUazapiInboundMessage } from '../integrations/uazapi/types';
 
 const maxBodyBytes = 256 * 1024;
 
 export class WebhookService {
   private readonly repository: WebhookEventsRepository;
+  private readonly contacts: ContactsRepository;
+  private readonly conversations: ConversationsRepository;
+  private readonly messages: MessagesRepository;
+  private readonly memory: MemoryRepository;
+  private readonly leads: LeadsRepository;
+  private readonly handoffs: HandoffsRepository;
 
   constructor(private readonly env: Env) {
     this.repository = new WebhookEventsRepository(env.DB);
+    this.contacts = new ContactsRepository(env.DB);
+    this.conversations = new ConversationsRepository(env.DB);
+    this.messages = new MessagesRepository(env.DB);
+    this.memory = new MemoryRepository(env.DB);
+    this.leads = new LeadsRepository(env.DB);
+    this.handoffs = new HandoffsRepository(env.DB);
   }
 
   async captureUazapiEvent(request: Request, context: RequestContext) {
@@ -106,7 +125,7 @@ export class WebhookService {
       };
     }
 
-    await this.repository.create({
+    const inserted = await this.repository.create({
       id: crypto.randomUUID(),
       requestId: context.requestId,
       provider: 'uazapi',
@@ -116,6 +135,16 @@ export class WebhookService {
       payloadJson: rawPayload,
       receivedAt
     });
+    if (!inserted) {
+      logger.info('webhook.duplicate', { provider: 'uazapi', payload_sha256: payloadSha256 });
+      return {
+        status: 'duplicate',
+        provider: 'uazapi',
+        captured: true,
+        database_configured: this.repository.configured,
+        payload_sha256: payloadSha256
+      };
+    }
 
     logger.info('webhook.captured', {
       provider: 'uazapi',
@@ -124,7 +153,16 @@ export class WebhookService {
       payload_sha256: payloadSha256
     });
 
-    const autoreply = await this.maybeAutoreply(validJson.data, config, logger, context.requestId);
+    const persistent = normalizedInbound
+      ? await this.persistInbound(normalizedInbound, receivedAt, logger)
+      : undefined;
+    const autoreply = await this.maybeAutoreply(
+      validJson.data,
+      config,
+      logger,
+      context.requestId,
+      persistent
+    );
 
     return {
       status: 'received',
@@ -140,7 +178,8 @@ export class WebhookService {
     payload: unknown,
     config: ReturnType<typeof getConfig>,
     logger: ReturnType<typeof createLogger>,
-    requestId: string
+    requestId: string,
+    persistent?: { contactId: string; conversationId: string; aiEnabled: boolean }
   ) {
     if (config.APP_ENV !== 'local' || !config.LOCAL_INBOUND_AUTOREPLY_ENABLED) {
       return undefined;
@@ -154,6 +193,14 @@ export class WebhookService {
         reason
       });
       return { sent: false, reason };
+    }
+
+    if (
+      persistent &&
+      (!persistent.aiEnabled || (await this.handoffs.hasBlocking(persistent.contactId)))
+    ) {
+      logger.info('uazapi.autoreply.skipped', { provider: 'uazapi', reason: 'ai_disabled' });
+      return { sent: false, reason: 'ai_disabled' };
     }
 
     logger.info('uazapi.message.normalized', {
@@ -172,9 +219,20 @@ export class WebhookService {
       inbound_message_id: inbound.messageId
     });
 
+    const memory = persistent ? await this.memory.get(persistent.contactId) : undefined;
+    const recent = persistent
+      ? await this.messages.recent(persistent.conversationId, config.AI_RECENT_MESSAGE_LIMIT)
+      : [];
+    logger.info('memory.loaded', {
+      provider: 'uazapi',
+      has_memory: Boolean(memory),
+      recent_count: recent.length
+    });
     const decision = await createAIProvider(this.env).generateReply({
       message: inbound.text,
-      requestId
+      requestId,
+      memory,
+      recent
     });
 
     if (!decision.should_reply || !decision.reply.trim()) {
@@ -185,11 +243,49 @@ export class WebhookService {
       return { sent: false, reason: 'ai_no_reply' };
     }
 
+    if (persistent) {
+      await this.memory.merge(
+        persistent.contactId,
+        decision.memory_patch,
+        decision.intent,
+        inbound.messageId,
+        utcNow()
+      );
+      await this.leads.merge(persistent.contactId, decision.lead_patch, utcNow());
+      await this.contacts.mergeProfile(persistent.contactId, decision.lead_patch, utcNow());
+      logger.info('memory.updated', { provider: 'uazapi' });
+      logger.info('lead.updated', { provider: 'uazapi' });
+      if (decision.handoff_requested) {
+        await this.handoffs.request(
+          persistent.contactId,
+          persistent.conversationId,
+          decision.handoff_reason,
+          utcNow()
+        );
+        await this.contacts.setAiEnabled(persistent.contactId, false, utcNow());
+        logger.info('handoff.requested', { provider: 'uazapi' });
+        return { sent: false, reason: 'handoff_requested' };
+      }
+    }
+
     const result = await createUazapiProvider(this.env, requestId).sendText({
       number: inbound.phone,
       text: decision.reply,
       replyId: inbound.messageId
     });
+
+    if (persistent) {
+      await this.messages.create({
+        conversationId: persistent.conversationId,
+        contactId: persistent.contactId,
+        providerMessageId: result.providerMessageId,
+        direction: 'outbound',
+        content: decision.reply,
+        aiGenerated: true,
+        now: utcNow()
+      });
+      logger.info('db.message.saved', { direction: 'outbound', ai_generated: true });
+    }
 
     logger.info('uazapi.autoreply.completed', {
       provider: 'uazapi',
@@ -200,6 +296,42 @@ export class WebhookService {
       sent: true,
       ai_validated: true,
       result
+    };
+  }
+
+  private async persistInbound(
+    inbound: NormalizedUazapiInboundMessage,
+    now: string,
+    logger: ReturnType<typeof createLogger>
+  ) {
+    const contact = await this.contacts.upsert({
+      phone: inbound.phone,
+      name: inbound.senderName,
+      now
+    });
+    if (!contact) return undefined;
+    logger.info('db.contact.upserted', { provider: 'uazapi', phone: inbound.phone });
+    const conversation = await this.conversations.getOrCreate(
+      contact.id,
+      inbound.instanceName,
+      now
+    );
+    if (!conversation) return undefined;
+    logger.info('db.conversation.loaded', { provider: 'uazapi', status: conversation.status });
+    await this.messages.create({
+      conversationId: conversation.id,
+      contactId: contact.id,
+      providerMessageId: inbound.messageId,
+      direction: 'inbound',
+      messageType: inbound.messageType,
+      content: inbound.text,
+      now
+    });
+    logger.info('db.message.saved', { direction: 'inbound', message_type: inbound.messageType });
+    return {
+      contactId: contact.id,
+      conversationId: conversation.id,
+      aiEnabled: contact.ai_enabled === 1
     };
   }
 }

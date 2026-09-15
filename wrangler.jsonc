@@ -11,16 +11,12 @@
     "LOG_MESSAGE_CONTENT": "false",
     "AI_RECENT_MESSAGE_LIMIT": "12",
     "OPENAI_MAX_OUTPUT_TOKENS": "600"
-  }
-  // Production D1 binding template, intentionally not enabled until a real D1 database_id exists.
-  // Create it later with:
-  // wrangler d1 create aty-whatsapp-agent-db
-  // Then add:
-  // "d1_databases": [
-  //   {
-  //     "binding": "DB",
-  //     "database_name": "aty-whatsapp-agent-db",
-  //     "database_id": "<real-cloudflare-d1-database-id>"
-  //   }
-  // ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "aty-whatsapp-agent-db",
+      "database_id": "00000000-0000-0000-0000-000000000000"
+    }
+  ]
 }
