@@ -5,10 +5,11 @@ import { MessagesRepository } from '../repositories/messages.repository';
 import { MemoryRepository } from '../repositories/memory.repository';
 import { LeadsRepository } from '../repositories/leads.repository';
 import { HandoffsRepository } from '../repositories/handoffs.repository';
+import { ErrorsRepository } from '../repositories/errors.repository';
 import { arbitraryJsonSchema } from '../schemas/webhook.schemas';
 import { getConfig, isEnvConfigured } from '../config/env';
 import { sha256Hex } from '../lib/crypto';
-import { AppError } from '../lib/errors';
+import { AppError, toAppError } from '../lib/errors';
 import { createLogger } from '../lib/logger';
 import { utcNow } from '../lib/time';
 import { createAIProvider } from '../integrations/openai/client';
@@ -31,6 +32,7 @@ export class WebhookService {
   private readonly memory: MemoryRepository;
   private readonly leads: LeadsRepository;
   private readonly handoffs: HandoffsRepository;
+  private readonly errors: ErrorsRepository;
 
   constructor(private readonly env: Env) {
     this.repository = new WebhookEventsRepository(env.DB);
@@ -40,6 +42,7 @@ export class WebhookService {
     this.memory = new MemoryRepository(env.DB);
     this.leads = new LeadsRepository(env.DB);
     this.handoffs = new HandoffsRepository(env.DB);
+    this.errors = new ErrorsRepository(env.DB);
   }
 
   async captureUazapiEvent(request: Request, context: RequestContext) {
@@ -109,23 +112,7 @@ export class WebhookService {
 
     const normalizedInbound = normalizeUazapiEvent(validJson.data);
     const receivedAt = utcNow();
-    const duplicateByMessageId = normalizedInbound?.messageId
-      ? await this.repository.findByProviderEventId('uazapi', normalizedInbound.messageId)
-      : false;
-    const duplicate =
-      duplicateByMessageId || (await this.repository.findByPayloadSha256(payloadSha256));
-    if (duplicate) {
-      logger.info('webhook.duplicate', { provider: 'uazapi', payload_sha256: payloadSha256 });
-      return {
-        status: 'duplicate',
-        provider: 'uazapi',
-        captured: true,
-        database_configured: this.repository.configured,
-        payload_sha256: payloadSha256
-      };
-    }
-
-    const inserted = await this.repository.create({
+    const claim = await this.repository.claim({
       id: crypto.randomUUID(),
       requestId: context.requestId,
       provider: 'uazapi',
@@ -135,10 +122,20 @@ export class WebhookService {
       payloadJson: rawPayload,
       receivedAt
     });
-    if (!inserted) {
+    if (claim.status === 'processed') {
       logger.info('webhook.duplicate', { provider: 'uazapi', payload_sha256: payloadSha256 });
       return {
         status: 'duplicate',
+        provider: 'uazapi',
+        captured: true,
+        database_configured: this.repository.configured,
+        payload_sha256: payloadSha256
+      };
+    }
+    if (claim.status === 'processing') {
+      logger.info('webhook.in_progress', { provider: 'uazapi', payload_sha256: payloadSha256 });
+      return {
+        status: 'processing',
         provider: 'uazapi',
         captured: true,
         database_configured: this.repository.configured,
@@ -152,40 +149,57 @@ export class WebhookService {
       database_configured: this.repository.configured,
       payload_sha256: payloadSha256
     });
-
-    const persistent = normalizedInbound
-      ? await this.persistInbound(normalizedInbound, receivedAt, logger)
-      : undefined;
-    const autoreply = await this.maybeAutoreply(
-      validJson.data,
-      config,
-      logger,
-      context.requestId,
-      persistent
-    );
-
-    return {
-      status: 'received',
+    logger.info('webhook.claimed', {
       provider: 'uazapi',
-      captured: true,
-      database_configured: this.repository.configured,
-      payload_sha256: payloadSha256,
-      ...(autoreply ? { autoreply } : {})
-    };
+      processing_status: 'processing'
+    });
+
+    try {
+      const persistent = normalizedInbound
+        ? await this.persistInbound(normalizedInbound, receivedAt, logger)
+        : undefined;
+      const autoreply = await this.maybeAutoreply(
+        validJson.data,
+        normalizedInbound,
+        config,
+        logger,
+        context.requestId,
+        persistent
+      );
+      await this.repository.markProcessed(claim.eventId, utcNow());
+      logger.info('webhook.processed', { provider: 'uazapi' });
+
+      return {
+        status: 'received',
+        provider: 'uazapi',
+        captured: true,
+        database_configured: this.repository.configured,
+        payload_sha256: payloadSha256,
+        ...(autoreply ? { autoreply } : {})
+      };
+    } catch (cause) {
+      const error = toAppError(cause);
+      await this.markFailed(claim.eventId, error, context.requestId, logger);
+      throw error;
+    }
   }
 
   private async maybeAutoreply(
     payload: unknown,
+    inbound: NormalizedUazapiInboundMessage | undefined,
     config: ReturnType<typeof getConfig>,
     logger: ReturnType<typeof createLogger>,
     requestId: string,
     persistent?: { contactId: string; conversationId: string; aiEnabled: boolean }
   ) {
-    if (config.APP_ENV !== 'local' || !config.LOCAL_INBOUND_AUTOREPLY_ENABLED) {
-      return undefined;
+    if (!config.INBOUND_AUTOREPLY_ENABLED) {
+      logger.info('uazapi.autoreply.skipped', {
+        provider: 'uazapi',
+        reason: 'inbound_autoreply_disabled'
+      });
+      return { sent: false, reason: 'inbound_autoreply_disabled' };
     }
 
-    const inbound = normalizeUazapiEvent(payload);
     if (!inbound) {
       const reason = getUazapiAutoreplySkipReason(payload) ?? 'message_not_normalized';
       logger.warn('uazapi.autoreply.skipped', {
@@ -193,6 +207,13 @@ export class WebhookService {
         reason
       });
       return { sent: false, reason };
+    }
+
+    if (config.APP_ENV === 'production' && config.AI_MODE === 'mock') {
+      logger.error('configuration.invalid', {
+        reason: 'production_autoreply_with_mock_ai'
+      });
+      return { sent: false, reason: 'invalid_configuration' };
     }
 
     if (
@@ -297,6 +318,26 @@ export class WebhookService {
       ai_validated: true,
       result
     };
+  }
+
+  private async markFailed(
+    eventId: string,
+    error: AppError,
+    requestId: string,
+    logger: ReturnType<typeof createLogger>
+  ) {
+    try {
+      await this.repository.markFailed(eventId, error.code);
+      await this.errors.create({
+        requestId,
+        errorCode: error.code,
+        safeMessage: error.safeMessage,
+        now: utcNow()
+      });
+    } catch {
+      logger.error('webhook.failure_recording_failed', { error_code: error.code });
+    }
+    logger.error('webhook.failed', { error_code: error.code });
   }
 
   private async persistInbound(

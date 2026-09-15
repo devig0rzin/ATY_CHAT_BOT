@@ -279,7 +279,7 @@ describe('UAZAPI webhook capture mode', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('auto-replies only when explicitly enabled locally', async () => {
+  it('auto-replies in production when explicitly enabled', async () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const fetch = vi.fn(async (url: string) => {
       if (url.endsWith('/chat/completions')) {
@@ -338,7 +338,7 @@ describe('UAZAPI webhook capture mode', () => {
       },
       {
         ...testEnv,
-        APP_ENV: 'local',
+        APP_ENV: 'production',
         AI_MODE: 'openrouter',
         OPENROUTER_API_KEY: 'test-key',
         OPENROUTER_BASE_URL: 'https://openrouter.ai/api/v1',
@@ -346,7 +346,7 @@ describe('UAZAPI webhook capture mode', () => {
         UAZAPI_BASE_URL: 'https://uazapi.test',
         UAZAPI_TOKEN: 'test-token',
         UAZAPI_OUTBOUND_ENABLED: 'true',
-        LOCAL_INBOUND_AUTOREPLY_ENABLED: 'true',
+        INBOUND_AUTOREPLY_ENABLED: 'true',
         LOG_LEVEL: 'info'
       }
     );
@@ -386,7 +386,7 @@ describe('UAZAPI webhook capture mode', () => {
     });
   });
 
-  it('skips local auto-reply for messages sent by this instance', async () => {
+  it('skips auto-reply for messages sent by this instance', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     const response = await request(
       '/webhooks/uazapi',
@@ -401,7 +401,7 @@ describe('UAZAPI webhook capture mode', () => {
       {
         ...testEnv,
         APP_ENV: 'local',
-        LOCAL_INBOUND_AUTOREPLY_ENABLED: 'true'
+        INBOUND_AUTOREPLY_ENABLED: 'true'
       }
     );
     const body = (await response.json()) as AnyBody;
@@ -410,6 +410,59 @@ describe('UAZAPI webhook capture mode', () => {
     expect(body.data.autoreply).toMatchObject({
       sent: false,
       reason: 'from_me'
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('persists the webhook flow without calling AI when inbound autoreply is disabled', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const response = await request(
+      '/webhooks/uazapi',
+      {
+        method: 'POST',
+        body: JSON.stringify(realWebhookFixture),
+        headers: { 'content-type': 'application/json' }
+      },
+      {
+        ...testEnv,
+        APP_ENV: 'production',
+        AI_MODE: 'openrouter',
+        INBOUND_AUTOREPLY_ENABLED: 'false'
+      }
+    );
+
+    const body = (await response.json()) as AnyBody;
+    expect(response.status).toBe(202);
+    expect(body.data.autoreply).toMatchObject({
+      sent: false,
+      reason: 'inbound_autoreply_disabled'
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('blocks production autoreply when AI_MODE is mock', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const response = await request(
+      '/webhooks/uazapi',
+      {
+        method: 'POST',
+        body: JSON.stringify(realWebhookFixture),
+        headers: { 'content-type': 'application/json' }
+      },
+      {
+        ...testEnv,
+        APP_ENV: 'production',
+        AI_MODE: 'mock',
+        INBOUND_AUTOREPLY_ENABLED: 'true'
+      }
+    );
+
+    const body = (await response.json()) as AnyBody;
+    expect(response.status).toBe(202);
+    expect(body.data.autoreply).toMatchObject({ sent: false, reason: 'invalid_configuration' });
+    expect(parseLog(error.mock.calls, 'configuration.invalid')).toMatchObject({
+      reason: 'production_autoreply_with_mock_ai'
     });
     expect(fetchSpy).not.toHaveBeenCalled();
   });

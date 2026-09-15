@@ -56,5 +56,10 @@ describe('environment boolean parsing', () => {
     expect(config.UAZAPI_OUTBOUND_ENABLED).toBe(true);
     expect(config.UAZAPI_DEBUG_PAYLOAD).toBe(false);
     expect(config.LOCAL_DEV_ROUTES_ENABLED).toBe(true);
+    expect(config.INBOUND_AUTOREPLY_ENABLED).toBe(false);
+  });
+
+  it('defaults the real inbound autoreply gate to disabled', () => {
+    expect(getConfig({ WEBHOOK_AUTH_MODE: 'off' }).INBOUND_AUTOREPLY_ENABLED).toBe(false);
   });
 });

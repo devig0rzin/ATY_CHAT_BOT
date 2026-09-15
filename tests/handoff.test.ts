@@ -17,6 +17,7 @@ describe('Human handoff', () => {
       ...testEnv,
       APP_ENV: 'local',
       LOCAL_INBOUND_AUTOREPLY_ENABLED: 'true',
+      INBOUND_AUTOREPLY_ENABLED: 'true',
       AI_MODE: 'openrouter',
       OPENROUTER_API_KEY: 'test',
       OPENROUTER_BASE_URL: 'https://openrouter.test/v1',

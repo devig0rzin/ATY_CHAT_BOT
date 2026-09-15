@@ -17,8 +17,12 @@ describe('Memory integration (local, mocked repos)', () => {
       ...testEnv,
       APP_ENV: 'local',
       LOCAL_INBOUND_AUTOREPLY_ENABLED: 'true',
+      INBOUND_AUTOREPLY_ENABLED: 'true',
       AI_MODE: 'openrouter',
-      OPENROUTER_API_KEY: 'test'
+      OPENROUTER_API_KEY: 'test',
+      UAZAPI_BASE_URL: 'https://uazapi.test',
+      UAZAPI_TOKEN: 'test-token',
+      UAZAPI_OUTBOUND_ENABLED: 'true'
     };
 
     const savedMessages: any[] = [];

@@ -13,6 +13,7 @@ export interface Env {
   AI_DEBUG_RESPONSE?: string;
   LOCAL_DEV_ROUTES_ENABLED?: string;
   LOCAL_INBOUND_AUTOREPLY_ENABLED?: string;
+  INBOUND_AUTOREPLY_ENABLED?: string;
   UAZAPI_BASE_URL?: string;
   UAZAPI_TOKEN?: string;
   UAZAPI_INSTANCE_ID?: string;

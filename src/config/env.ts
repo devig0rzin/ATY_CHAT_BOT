@@ -22,6 +22,7 @@ const envSchema = z
     AI_DEBUG_RESPONSE: booleanStringSchema,
     LOCAL_DEV_ROUTES_ENABLED: booleanStringSchema,
     LOCAL_INBOUND_AUTOREPLY_ENABLED: booleanStringSchema,
+    INBOUND_AUTOREPLY_ENABLED: booleanStringSchema,
     UAZAPI_BASE_URL: z.string().optional(),
     UAZAPI_TOKEN: z.string().optional(),
     UAZAPI_INSTANCE_ID: z.string().optional(),
