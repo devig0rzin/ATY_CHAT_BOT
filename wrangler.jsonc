@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "aty-whatsapp-agent",
+  "name": "aty-chat-bot",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "vars": {
@@ -16,7 +16,7 @@
     {
       "binding": "DB",
       "database_name": "aty-whatsapp-agent-db",
-      "database_id": "00000000-0000-0000-0000-000000000000"
+      "database_id": "1cde5f3e-8c54-4a4f-aed7-a1d1944ede05"
     }
   ]
 }
