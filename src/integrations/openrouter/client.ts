@@ -21,7 +21,13 @@ export interface OpenRouterChatCompletionInput {
 export interface OpenRouterChatCompletionResult {
   status: number;
   model: string;
-  content: string;
+  content?: string;
+  contentType: string;
+  choicesLength: number;
+  finishReason?: string;
+  refusalPresent: boolean;
+  reasoningPresent: boolean;
+  toolCallsPresent: boolean;
 }
 
 export class OpenRouterClient {
@@ -57,26 +63,22 @@ export class OpenRouterClient {
 
       const payload = await parseJson(response);
 
-      const rawContent = payload?.choices?.[0]?.message?.content;
-      const content = extractMessageContent(rawContent);
-      if (!content) {
-        throw new AppError({
-          code: 'OPENROUTER_INVALID_RESPONSE',
-          httpStatus: 502,
-          safeMessage: 'OpenRouter response did not include message content',
-          metadata: {
-            status: response.status,
-            model: typeof payload?.model === 'string' ? payload.model : input.model,
-            output_type: Array.isArray(rawContent) ? 'array' : typeof rawContent,
-            finish_reason: payload?.choices?.[0]?.finish_reason
-          }
-        });
-      }
+      const choices = Array.isArray(payload?.choices) ? payload.choices : [];
+      const choice = asRecord(choices[0]);
+      const message = asRecord(choice?.message);
+      const rawContent = message?.content;
+      const content = extractAssistantContent(rawContent);
 
       return {
         status: response.status,
         model: typeof payload.model === 'string' ? payload.model : input.model,
-        content
+        ...(content ? { content } : {}),
+        contentType: contentType(rawContent),
+        choicesLength: choices.length,
+        finishReason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined,
+        refusalPresent: hasValue(message?.refusal),
+        reasoningPresent: hasValue(message?.reasoning) || hasValue(message?.reasoning_details),
+        toolCallsPresent: Array.isArray(message?.tool_calls) && message.tool_calls.length > 0
       };
     } catch (cause) {
       if (cause instanceof AppError) throw cause;
@@ -100,7 +102,7 @@ export class OpenRouterClient {
   }
 }
 
-function extractMessageContent(content: unknown): string | undefined {
+export function extractAssistantContent(content: unknown): string | undefined {
   if (typeof content === 'string' && content.trim()) return content;
   if (content && typeof content === 'object' && !Array.isArray(content)) {
     if (Object.keys(content).length === 0) return undefined;
@@ -122,6 +124,24 @@ function extractMessageContent(content: unknown): string | undefined {
   return text || undefined;
 }
 
+function contentType(content: unknown): string {
+  if (content === null) return 'null';
+  if (Array.isArray(content)) return 'array';
+  return typeof content;
+}
+
+function hasValue(value: unknown): boolean {
+  if (typeof value === 'string') return value.trim().length > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  return value !== null && value !== undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 async function parseJson(response: Response): Promise<any> {
   try {
     return await response.json();
@@ -138,13 +158,12 @@ async function parseJson(response: Response): Promise<any> {
 
 async function mapOpenRouterStatus(response: Response): Promise<AppError> {
   const status = response.status;
-  const upstream_error = await readSafeErrorBody(response);
   if (status === 401 || status === 403) {
     return new AppError({
       code: 'OPENROUTER_AUTH_ERROR',
       httpStatus: 401,
       safeMessage: 'OpenRouter authentication failed',
-      metadata: { status, upstream_error }
+      metadata: { status }
     });
   }
   if (status === 429) {
@@ -152,7 +171,7 @@ async function mapOpenRouterStatus(response: Response): Promise<AppError> {
       code: 'OPENROUTER_RATE_LIMITED',
       httpStatus: 429,
       safeMessage: 'OpenRouter rate limit reached',
-      metadata: { status, upstream_error }
+      metadata: { status }
     });
   }
   if (status >= 500) {
@@ -160,27 +179,13 @@ async function mapOpenRouterStatus(response: Response): Promise<AppError> {
       code: 'OPENROUTER_UPSTREAM_ERROR',
       httpStatus: 502,
       safeMessage: 'OpenRouter upstream error',
-      metadata: { status, upstream_error }
+      metadata: { status }
     });
   }
   return new AppError({
     code: 'OPENROUTER_INVALID_RESPONSE',
     httpStatus: 502,
     safeMessage: 'OpenRouter request failed',
-    metadata: { status, upstream_error }
+    metadata: { status }
   });
-}
-
-async function readSafeErrorBody(response: Response): Promise<unknown> {
-  try {
-    const text = await response.text();
-    if (!text) return undefined;
-    try {
-      return JSON.parse(text);
-    } catch {
-      return text.slice(0, 1000);
-    }
-  } catch {
-    return undefined;
-  }
 }

@@ -77,7 +77,9 @@ describe('OpenRouter integration', () => {
       choices: [{ message: { content: JSON.stringify(validDecision) } }]
     });
 
-    const decision = await new OpenRouterProvider(getConfig(openRouterEnv)).generateReply({
+    const decision = await new OpenRouterProvider(
+      getConfig({ ...openRouterEnv, LOG_LEVEL: 'info' })
+    ).generateReply({
       message: 'Quero automacao',
       requestId: crypto.randomUUID()
     });
@@ -105,6 +107,7 @@ describe('OpenRouter integration', () => {
     expect(requestBody.plugins).toEqual([{ id: 'response-healing' }]);
     expect(requestBody.messages[1].content).toContain('memory_patch');
     expect(requestBody.messages[1].content).toContain('lead_patch');
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it('parses JSON wrapped in markdown', async () => {
@@ -250,7 +253,7 @@ describe('OpenRouter integration', () => {
     expect(decision).toMatchObject(validDecision);
   });
 
-  it('reports safe metadata when content is missing due to length', async () => {
+  it('returns safe response shape when content is missing due to length', async () => {
     mockOpenRouterFetch(200, {
       model: 'short-output-model',
       choices: [{ finish_reason: 'length', message: { content: '' } }]
@@ -266,14 +269,12 @@ describe('OpenRouter integration', () => {
         temperature: 0.4,
         timeoutMs: 30000
       })
-    ).rejects.toMatchObject({
-      code: 'OPENROUTER_INVALID_RESPONSE',
-      metadata: {
-        status: 200,
-        model: 'short-output-model',
-        output_type: 'string',
-        finish_reason: 'length'
-      }
+    ).resolves.toMatchObject({
+      status: 200,
+      model: 'short-output-model',
+      contentType: 'string',
+      finishReason: 'length',
+      choicesLength: 1
     });
   });
 
@@ -291,6 +292,103 @@ describe('OpenRouter integration', () => {
     expect(decision).toMatchObject(validDecision);
   });
 
+  it.each([
+    ['null', { content: null }],
+    ['absent', {}]
+  ])('keeps %s message content out of the reply', async (label, message) => {
+    mockOpenRouterFetch(200, {
+      model: 'content-shape-model',
+      choices: [{ message }]
+    });
+
+    await expect(
+      new OpenRouterClient().createChatCompletion({
+        apiKey: 'test-key',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        model: 'openrouter/free',
+        messages: [{ role: 'user', content: 'Oi' }],
+        maxTokens: 100,
+        temperature: 0.4,
+        timeoutMs: 30000
+      })
+    ).resolves.toMatchObject({
+      model: 'content-shape-model',
+      contentType: label === 'null' ? 'null' : 'undefined'
+    });
+  });
+
+  it.each([
+    ['empty content', ''],
+    ['invalid JSON', '{invalid'],
+    ['invalid AIDecision schema', JSON.stringify({ reply: 'missing fields' })]
+  ])('uses one compatible fallback for %s', async (_label, content) => {
+    const fetch = mockOpenRouterFetchSequence(
+      {
+        model: 'structured/free-model',
+        choices: [{ message: { content } }]
+      },
+      {
+        model: 'compatible/free-model',
+        choices: [{ message: { content: JSON.stringify(validDecision) } }]
+      }
+    );
+
+    const decision = await new OpenRouterProvider(getConfig(openRouterEnv)).generateReply({
+      message: 'Quero automacao',
+      requestId: crypto.randomUUID()
+    });
+
+    expect(decision).toMatchObject(validDecision);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetch.mock.calls[1][1]?.body)).response_format).toEqual({
+      type: 'json_object'
+    });
+  });
+
+  it('does not use reasoning as reply content and falls back once', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const fetch = mockOpenRouterFetchSequence(
+      {
+        model: 'reasoning-only-model',
+        choices: [
+          { message: { content: null, reasoning: 'internal reasoning must remain private' } }
+        ]
+      },
+      {
+        model: 'compatible/free-model',
+        choices: [{ message: { content: JSON.stringify(validDecision) } }]
+      }
+    );
+
+    const decision = await new OpenRouterProvider(
+      getConfig({ ...openRouterEnv, LOG_LEVEL: 'info' })
+    ).generateReply({ message: 'Quero automacao', requestId: crypto.randomUUID() });
+
+    expect(decision).toMatchObject(validDecision);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    const logs = infoSpy.mock.calls.flat().join('\n');
+    expect(logs).toContain('reasoning_present');
+    expect(logs).not.toContain('internal reasoning must remain private');
+  });
+
+  it('does not retry a refusal response', async () => {
+    const fetch = mockOpenRouterFetch(200, {
+      model: 'refusal-model',
+      choices: [{ message: { content: null, refusal: 'cannot comply' } }]
+    });
+
+    await expect(
+      new OpenRouterProvider(getConfig(openRouterEnv)).generateReply({
+        message: 'Quero automacao',
+        requestId: crypto.randomUUID()
+      })
+    ).rejects.toMatchObject({
+      code: 'OPENROUTER_INVALID_RESPONSE',
+      metadata: { reason: 'refusal' }
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it('maps invalid AI schema', async () => {
     mockOpenRouterFetch(200, {
       choices: [{ message: { content: JSON.stringify({ reply: 'missing fields' }) } }]
@@ -301,7 +399,11 @@ describe('OpenRouter integration', () => {
         message: 'Oi',
         requestId: crypto.randomUUID()
       })
-    ).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
+    ).rejects.toMatchObject({
+      code: 'OPENROUTER_INVALID_RESPONSE',
+      metadata: { reason: 'schema_validation_failed' }
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it('rejects missing required fields', async () => {
@@ -316,7 +418,7 @@ describe('OpenRouter integration', () => {
         message: 'Oi',
         requestId: crypto.randomUUID()
       })
-    ).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
+    ).rejects.toMatchObject({ code: 'OPENROUTER_INVALID_RESPONSE' });
   });
 
   it('rejects semantic type changes such as confidence string', async () => {
@@ -329,7 +431,7 @@ describe('OpenRouter integration', () => {
         message: 'Oi',
         requestId: crypto.randomUUID()
       })
-    ).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
+    ).rejects.toMatchObject({ code: 'OPENROUTER_INVALID_RESPONSE' });
   });
 
   it('rejects incomplete lead_patch', async () => {
@@ -346,7 +448,7 @@ describe('OpenRouter integration', () => {
         message: 'Oi',
         requestId: crypto.randomUUID()
       })
-    ).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
+    ).rejects.toMatchObject({ code: 'OPENROUTER_INVALID_RESPONSE' });
   });
 
   it('rejects incomplete memory_patch', async () => {
@@ -363,7 +465,7 @@ describe('OpenRouter integration', () => {
         message: 'Oi',
         requestId: crypto.randomUUID()
       })
-    ).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
+    ).rejects.toMatchObject({ code: 'OPENROUTER_INVALID_RESPONSE' });
   });
 
   it('reports the resolved OpenRouter model returned by the API', async () => {
@@ -498,10 +600,15 @@ describe('OpenRouter integration', () => {
         message: 'Oi',
         requestId: crypto.randomUUID()
       })
-    ).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
+    ).rejects.toMatchObject({
+      code: 'OPENROUTER_INVALID_RESPONSE',
+      metadata: { reason: 'schema_validation_failed' }
+    });
+    expect(fetch).toHaveBeenCalledTimes(2);
   });
 
   it('never writes API keys to logs', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     mockOpenRouterFetch(200, {
@@ -510,13 +617,16 @@ describe('OpenRouter integration', () => {
 
     await expect(
       new OpenRouterProvider(getConfig(openRouterEnv)).generateReply({
-        message: 'Oi',
+        message: 'mensagem privada do cliente',
         requestId: crypto.randomUUID()
       })
-    ).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
+    ).rejects.toMatchObject({ code: 'OPENROUTER_INVALID_RESPONSE' });
 
-    const logs = [...errorSpy.mock.calls, ...warnSpy.mock.calls].flat().join('\n');
+    const logs = [...infoSpy.mock.calls, ...errorSpy.mock.calls, ...warnSpy.mock.calls]
+      .flat()
+      .join('\n');
     expect(logs).not.toContain('test-key');
+    expect(logs).not.toContain('mensagem privada do cliente');
   });
 
   it('does not show raw content when AI_DEBUG_RESPONSE=false', async () => {
@@ -530,12 +640,13 @@ describe('OpenRouter integration', () => {
         message: 'Oi',
         requestId: crypto.randomUUID()
       })
-    ).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
+    ).rejects.toMatchObject({ code: 'OPENROUTER_INVALID_RESPONSE' });
 
     expect(warnSpy.mock.calls.flat().join('\n')).not.toContain('ai.debug.invalid_response');
   });
 
-  it('shows safe local diagnostics when AI_DEBUG_RESPONSE=true in local env', async () => {
+  it('logs only safe response shape metadata when AI_DEBUG_RESPONSE=true in local env', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     mockOpenRouterFetch(200, {
       model: 'resolved/free-model',
@@ -549,12 +660,12 @@ describe('OpenRouter integration', () => {
         message: 'Oi',
         requestId: crypto.randomUUID()
       })
-    ).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
+    ).rejects.toMatchObject({ code: 'OPENROUTER_INVALID_RESPONSE' });
 
-    const logs = warnSpy.mock.calls.flat().join('\n');
-    expect(logs).toContain('ai.debug.invalid_response');
+    const logs = [...infoSpy.mock.calls, ...warnSpy.mock.calls].flat().join('\n');
+    expect(logs).toContain('ai.response.shape');
     expect(logs).toContain('resolved/free-model');
-    expect(logs).toContain('should_reply');
+    expect(logs).not.toContain('should_reply');
     expect(logs).not.toContain('test-key');
   });
 
@@ -576,7 +687,7 @@ describe('OpenRouter integration', () => {
         message: 'Oi',
         requestId: crypto.randomUUID()
       })
-    ).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
+    ).rejects.toMatchObject({ code: 'OPENROUTER_INVALID_RESPONSE' });
 
     expect(warnSpy.mock.calls.flat().join('\n')).not.toContain('ai.debug.invalid_response');
   });
@@ -673,6 +784,20 @@ function mockOpenRouterFetch(status: number, body: unknown) {
         headers: { 'content-type': 'application/json' }
       })
   );
+  vi.stubGlobal('fetch', fetch);
+  return fetch;
+}
+
+function mockOpenRouterFetchSequence(...bodies: unknown[]) {
+  const fetch = vi.fn();
+  for (const body of bodies) {
+    fetch.mockResolvedValueOnce(
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { 'content-type': 'application/json' }
+      })
+    );
+  }
   vi.stubGlobal('fetch', fetch);
   return fetch;
 }

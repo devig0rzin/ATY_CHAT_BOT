@@ -2,10 +2,9 @@ import type { AppConfig } from '../../config/env';
 import { AppError } from '../../lib/errors';
 import { createLogger } from '../../lib/logger';
 import { prompts } from '../../generated/prompts';
-import { z } from 'zod';
 import { aiDecisionJsonSchema, aiDecisionSchema, type AIDecision } from '../../schemas/ai.schemas';
 import type { AIProvider } from '../openai/provider';
-import { OpenRouterClient } from './client';
+import { OpenRouterClient, type OpenRouterChatCompletionResult } from './client';
 
 export interface OpenRouterProviderContext {
   message: string;
@@ -17,12 +16,6 @@ export interface OpenRouterProviderContext {
     current_intent: string | null;
   };
   recent?: Array<{ direction: string; content: string | null }>;
-}
-
-interface CompletionForParsing {
-  status: number;
-  model: string;
-  content: string;
 }
 
 export class OpenRouterProvider implements AIProvider {
@@ -60,10 +53,8 @@ export class OpenRouterProvider implements AIProvider {
     });
 
     try {
-      const completion = await this.createCompatibleCompletion(
-        buildConversationInput(parsedContext)
-      );
-      const decision = this.parseAIDecision(completion, logger);
+      const message = buildConversationInput(parsedContext);
+      const { completion, decision } = await this.createDecision(message, logger);
       Object.assign(decision, { resolved_model: completion.model });
 
       logger.info('ai.request.completed', {
@@ -95,7 +86,34 @@ export class OpenRouterProvider implements AIProvider {
     }
   }
 
-  private async createCompatibleCompletion(message: string) {
+  private async createDecision(
+    message: string,
+    logger: ReturnType<typeof createLogger>
+  ): Promise<{ completion: OpenRouterChatCompletionResult; decision: AIDecision }> {
+    try {
+      return await this.createAndParse(message, 'structured', logger);
+    } catch (error) {
+      if (!shouldUseCompatibleFallback(error)) throw error;
+      logger.warn('ai.response.fallback', {
+        provider: 'openrouter',
+        requested_model: this.config.OPENROUTER_MODEL,
+        reason: fallbackReason(error)
+      });
+      return this.createAndParse(message, 'compatible', logger);
+    }
+  }
+
+  private async createAndParse(
+    message: string,
+    strategy: 'structured' | 'compatible',
+    logger: ReturnType<typeof createLogger>
+  ): Promise<{ completion: OpenRouterChatCompletionResult; decision: AIDecision }> {
+    const completion = await this.createCompletion(message, strategy);
+    this.logResponseShape(logger, completion, strategy);
+    return { completion, decision: this.parseAIDecision(completion) };
+  }
+
+  private async createCompletion(message: string, strategy: 'structured' | 'compatible') {
     const baseInput = {
       apiKey: this.config.OPENROUTER_API_KEY as string,
       baseUrl: this.config.OPENROUTER_BASE_URL,
@@ -109,80 +127,78 @@ export class OpenRouterProvider implements AIProvider {
       ]
     };
 
-    try {
-      return await this.client.createChatCompletion({
-        ...baseInput,
-        responseFormat: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'aty_ai_decision',
-            strict: true,
-            schema: aiDecisionJsonSchema
+    return this.client.createChatCompletion({
+      ...baseInput,
+      responseFormat:
+        strategy === 'structured'
+          ? {
+              type: 'json_schema',
+              json_schema: {
+                name: 'aty_ai_decision',
+                strict: true,
+                schema: aiDecisionJsonSchema
+              }
+            }
+          : { type: 'json_object' },
+      ...(strategy === 'structured'
+        ? {
+            provider: { require_parameters: true },
+            plugins: [{ id: 'response-healing' }]
           }
-        },
-        provider: {
-          require_parameters: true
-        },
-        plugins: [
-          {
-            id: 'response-healing'
-          }
-        ]
-      });
-    } catch (error) {
-      if (!isStructuredOutputUnsupported(error)) {
-        throw error;
-      }
-
-      return this.client.createChatCompletion({
-        ...baseInput,
-        responseFormat: {
-          type: 'json_object'
-        }
-      });
-    }
+        : {})
+    });
   }
 
-  private parseAIDecision(
-    completion: CompletionForParsing,
-    logger: ReturnType<typeof createLogger>
-  ) {
+  private parseAIDecision(completion: OpenRouterChatCompletionResult): AIDecision {
+    if (completion.refusalPresent) {
+      throw responseFailure(completion, 'refusal', 'OpenRouter declined the request');
+    }
+    if (completion.finishReason === 'length') {
+      throw responseFailure(completion, 'truncated_response', 'OpenRouter response was truncated');
+    }
+    if (!completion.content) {
+      throw responseFailure(
+        completion,
+        'missing_content',
+        'OpenRouter response did not include message content'
+      );
+    }
+
     const parseResult = parseJsonFromModelContent(completion.content);
     if (!parseResult.ok) {
-      this.logInvalidResponse(logger, completion, {
-        json_parse_status: 'failed',
-        zod_errors: [],
-        parse_error: parseResult.error
-      });
-      throw invalidResponse(parseResult.error);
+      throw responseFailure(completion, 'invalid_json', 'OpenRouter response was not valid JSON');
     }
 
     const validated = aiDecisionSchema.safeParse(parseResult.value);
     if (!validated.success) {
-      this.logInvalidResponse(logger, completion, {
-        json_parse_status: 'ok',
-        parsed: parseResult.value,
-        zod_errors: summarizeZodErrors(validated.error)
-      });
-      throw invalidResponse(validated.error);
+      throw responseFailure(
+        completion,
+        'schema_validation_failed',
+        'OpenRouter response failed AIDecision validation'
+      );
     }
 
     return validated.data;
   }
 
-  private logInvalidResponse(
+  private logResponseShape(
     logger: ReturnType<typeof createLogger>,
-    completion: CompletionForParsing,
-    diagnostics: Record<string, unknown>
+    completion: OpenRouterChatCompletionResult,
+    strategy: 'structured' | 'compatible'
   ) {
-    if (this.config.APP_ENV !== 'local' || !this.config.AI_DEBUG_RESPONSE) return;
-
-    logger.warn('ai.debug.invalid_response', {
+    logger.info('ai.response.shape', {
       provider: 'openrouter',
       requested_model: this.config.OPENROUTER_MODEL,
       resolved_model: completion.model,
-      raw_model_output: completion.content,
-      ...diagnostics
+      strategy,
+      status: completion.status,
+      finish_reason: completion.finishReason ?? null,
+      content_present: Boolean(completion.content),
+      output_type: completion.contentType,
+      choices_length: completion.choicesLength,
+      refusal_present: completion.refusalPresent,
+      reasoning_present: completion.reasoningPresent,
+      tool_calls_present: completion.toolCallsPresent
     });
   }
 }
@@ -302,34 +318,39 @@ function removeTrailingJsonCommas(content: string): string {
   return content.replace(/,\s*([}\]])/g, '$1');
 }
 
-function summarizeZodErrors(error: z.ZodError): Array<{
-  path: string;
-  code: string;
-  expected?: string;
-  received?: string;
-}> {
-  return error.issues.map((issue) => ({
-    path: issue.path.join('.'),
-    code: issue.code,
-    ...('expected' in issue ? { expected: String(issue.expected) } : {}),
-    ...('received' in issue ? { received: String(issue.received) } : {})
-  }));
-}
-
-function invalidResponse(cause: unknown): AppError {
+function responseFailure(
+  completion: OpenRouterChatCompletionResult,
+  reason:
+    | 'missing_content'
+    | 'invalid_json'
+    | 'schema_validation_failed'
+    | 'truncated_response'
+    | 'refusal',
+  safeMessage: string
+): AppError {
   return new AppError({
-    code: 'AI_INVALID_RESPONSE',
+    code: 'OPENROUTER_INVALID_RESPONSE',
     httpStatus: 502,
-    safeMessage: 'AI response failed schema validation',
-    cause
+    safeMessage,
+    metadata: {
+      status: completion.status,
+      reason,
+      resolved_model: completion.model,
+      finish_reason: completion.finishReason ?? null,
+      output_type: completion.contentType
+    }
   });
 }
 
-function isStructuredOutputUnsupported(error: unknown): boolean {
+function shouldUseCompatibleFallback(error: unknown): boolean {
   if (!(error instanceof AppError) || error.code !== 'OPENROUTER_INVALID_RESPONSE') return false;
-  return (
-    error.metadata?.status === 400 ||
-    error.metadata?.status === 404 ||
-    (error.metadata?.status === 200 && error.metadata?.finish_reason === 'length')
-  );
+  if (error.metadata?.reason === 'refusal') return false;
+  if (typeof error.metadata?.reason === 'string') return true;
+  return error.metadata?.status === 400 || error.metadata?.status === 404;
+}
+
+function fallbackReason(error: unknown): string {
+  return error instanceof AppError && typeof error.metadata?.reason === 'string'
+    ? error.metadata.reason
+    : 'structured_output_unsupported';
 }
