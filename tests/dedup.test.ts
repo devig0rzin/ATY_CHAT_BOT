@@ -134,7 +134,10 @@ describe('Webhook event lifecycle', () => {
         return new Response(
           JSON.stringify(
             chatRequests === 1
-              ? { model: 'structured/free-model', choices: [{ message: { content: '{invalid' } }] }
+              ? {
+                  model: 'structured/free-model',
+                  choices: [{ finish_reason: 'length', message: { content: '' } }]
+                }
               : validOpenRouterResponse()
           ),
           { status: 200, headers: { 'content-type': 'application/json' } }

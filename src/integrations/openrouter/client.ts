@@ -28,6 +28,9 @@ export interface OpenRouterChatCompletionResult {
   refusalPresent: boolean;
   reasoningPresent: boolean;
   toolCallsPresent: boolean;
+  usagePromptTokens?: number;
+  usageCompletionTokens?: number;
+  usageTotalTokens?: number;
 }
 
 export class OpenRouterClient {
@@ -68,6 +71,7 @@ export class OpenRouterClient {
       const message = asRecord(choice?.message);
       const rawContent = message?.content;
       const content = extractAssistantContent(rawContent);
+      const usage = asRecord(payload?.usage);
 
       return {
         status: response.status,
@@ -78,7 +82,10 @@ export class OpenRouterClient {
         finishReason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined,
         refusalPresent: hasValue(message?.refusal),
         reasoningPresent: hasValue(message?.reasoning) || hasValue(message?.reasoning_details),
-        toolCallsPresent: Array.isArray(message?.tool_calls) && message.tool_calls.length > 0
+        toolCallsPresent: Array.isArray(message?.tool_calls) && message.tool_calls.length > 0,
+        usagePromptTokens: tokenCount(usage?.prompt_tokens),
+        usageCompletionTokens: tokenCount(usage?.completion_tokens),
+        usageTotalTokens: tokenCount(usage?.total_tokens)
       };
     } catch (cause) {
       if (cause instanceof AppError) throw cause;
@@ -134,6 +141,10 @@ function hasValue(value: unknown): boolean {
   if (typeof value === 'string') return value.trim().length > 0;
   if (Array.isArray(value)) return value.length > 0;
   return value !== null && value !== undefined;
+}
+
+function tokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

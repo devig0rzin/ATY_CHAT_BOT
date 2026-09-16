@@ -194,11 +194,15 @@ export class OpenRouterProvider implements AIProvider {
       status: completion.status,
       finish_reason: completion.finishReason ?? null,
       content_present: Boolean(completion.content),
-      output_type: completion.contentType,
+      content_type: completion.contentType,
       choices_length: completion.choicesLength,
       refusal_present: completion.refusalPresent,
       reasoning_present: completion.reasoningPresent,
-      tool_calls_present: completion.toolCallsPresent
+      tool_calls_present: completion.toolCallsPresent,
+      fallback_attempt: strategy === 'compatible' ? 1 : 0,
+      usage_prompt_tokens: completion.usagePromptTokens ?? null,
+      usage_completion_tokens: completion.usageCompletionTokens ?? null,
+      usage_total_tokens: completion.usageTotalTokens ?? null
     });
   }
 }
@@ -234,34 +238,11 @@ function parseContext(context: unknown): OpenRouterProviderContext {
 
 function buildUserPrompt(message: string): string {
   return [
-    'Return only one JSON object that matches the AIDecision contract.',
-    'Do not wrap the JSON in markdown.',
-    'Use null for unknown nullable fields and include every required field.',
-    'Keep reply concise, preferably under 320 characters.',
-    'Start from this exact key skeleton and replace only the values:',
-    JSON.stringify({
-      should_reply: true,
-      reply: '',
-      intent: '',
-      confidence: 0.9,
-      handoff_requested: false,
-      handoff_reason: null,
-      lead_patch: {
-        name: null,
-        company: null,
-        segment: null,
-        service_interest: null,
-        budget_status: null,
-        urgency: null
-      },
-      memory_patch: {
-        summary: null,
-        facts_to_add: [],
-        open_loops: []
-      }
-    }),
-    'Required JSON shape:',
-    JSON.stringify(aiDecisionJsonSchema),
+    'Return only the AIDecision JSON object required by the response format.',
+    'Do not add markdown, prose, reasoning, or text before or after the JSON.',
+    'Keep reply short, natural, and under 320 characters.',
+    'Include every required field. Use null for unknown nullable fields.',
+    'Keep lead_patch and memory_patch complete with all required fields.',
     `User message: ${message}`
   ].join('\n');
 }
@@ -337,7 +318,7 @@ function responseFailure(
       reason,
       resolved_model: completion.model,
       finish_reason: completion.finishReason ?? null,
-      output_type: completion.contentType
+      content_type: completion.contentType
     }
   });
 }

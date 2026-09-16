@@ -10,6 +10,7 @@ const levelRank: Record<LogLevel, number> = {
 };
 
 const secretKeys = ['OPENAI_API_KEY', 'UAZAPI_TOKEN', 'ADMIN_API_KEY', 'WEBHOOK_SECRET'];
+const safeContentMetadataKeys = new Set(['content_type']);
 const credentialLikeKeys = new Set([
   'token',
   'apikey',
@@ -86,7 +87,12 @@ export function redact(value: unknown, logMessageContent = false): unknown {
     Object.entries(value as Record<string, unknown>).map(([key, raw]) => {
       if (secretKeys.includes(key) || /authorization/i.test(key)) return [key, '[REDACTED]'];
       if (/phone/i.test(key) && typeof raw === 'string') return [key, maskPhone(raw)];
-      if (!logMessageContent && /content|message/i.test(key) && typeof raw === 'string') {
+      if (
+        !logMessageContent &&
+        !safeContentMetadataKeys.has(key) &&
+        /content|message/i.test(key) &&
+        typeof raw === 'string'
+      ) {
         return [key, '[REDACTED]'];
       }
       return [key, redact(raw, logMessageContent)];

@@ -78,7 +78,7 @@ describe('OpenRouter integration', () => {
     });
 
     const decision = await new OpenRouterProvider(
-      getConfig({ ...openRouterEnv, LOG_LEVEL: 'info' })
+      getConfig({ ...openRouterEnv, LOG_LEVEL: 'info', OPENAI_MAX_OUTPUT_TOKENS: '1200' })
     ).generateReply({
       message: 'Quero automacao',
       requestId: crypto.randomUUID()
@@ -105,8 +105,11 @@ describe('OpenRouter integration', () => {
     });
     expect(requestBody.provider).toEqual({ require_parameters: true });
     expect(requestBody.plugins).toEqual([{ id: 'response-healing' }]);
+    expect(requestBody.max_tokens).toBe(1200);
     expect(requestBody.messages[1].content).toContain('memory_patch');
     expect(requestBody.messages[1].content).toContain('lead_patch');
+    expect(requestBody.messages[1].content).not.toContain('Required JSON shape');
+    expect(requestBody.messages[1].content).not.toContain('"should_reply"');
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
@@ -569,13 +572,72 @@ describe('OpenRouter integration', () => {
       );
     vi.stubGlobal('fetch', fetch);
 
-    const decision = await new OpenRouterProvider(getConfig(openRouterEnv)).generateReply({
-      message: 'Oi',
-      requestId: crypto.randomUUID()
+    const decision = await new OpenRouterProvider(
+      getConfig({ ...openRouterEnv, OPENAI_MAX_OUTPUT_TOKENS: '1200' })
+    ).generateReply({ message: 'Oi', requestId: crypto.randomUUID() });
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetch.mock.calls[0][1]?.body)).max_tokens).toBe(1200);
+    expect(JSON.parse(String(fetch.mock.calls[1][1]?.body)).max_tokens).toBe(1200);
+    expect(JSON.parse(String(fetch.mock.calls[1][1]?.body)).response_format).toEqual({
+      type: 'json_object'
+    });
+    expect(decision.reply).toContain('ATY');
+  });
+
+  it('returns a terminal truncation error after two truncated responses', async () => {
+    const fetch = mockOpenRouterFetchSequence(
+      {
+        model: 'structured/free-model',
+        choices: [{ finish_reason: 'length', message: { content: '' } }]
+      },
+      {
+        model: 'compatible/free-model',
+        choices: [{ finish_reason: 'length', message: { content: '' } }]
+      }
+    );
+
+    await expect(
+      new OpenRouterProvider(
+        getConfig({ ...openRouterEnv, OPENAI_MAX_OUTPUT_TOKENS: '1200' })
+      ).generateReply({ message: 'Oi', requestId: crypto.randomUUID() })
+    ).rejects.toMatchObject({
+      code: 'OPENROUTER_INVALID_RESPONSE',
+      metadata: { reason: 'truncated_response' }
     });
 
     expect(fetch).toHaveBeenCalledTimes(2);
-    expect(decision.reply).toContain('ATY');
+  });
+
+  it('logs safe response shape and token usage without model content', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    mockOpenRouterFetch(200, {
+      model: 'resolved/free-model',
+      usage: { prompt_tokens: 321, completion_tokens: 123, total_tokens: 444 },
+      choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(validDecision) } }]
+    });
+
+    await new OpenRouterProvider(getConfig({ ...openRouterEnv, LOG_LEVEL: 'info' })).generateReply({
+      message: 'mensagem privada do cliente',
+      requestId: crypto.randomUUID()
+    });
+
+    const shapeLog = infoSpy.mock.calls
+      .map(([entry]) => JSON.parse(String(entry)) as Record<string, unknown>)
+      .find((entry) => entry.event === 'ai.response.shape');
+    expect(shapeLog).toMatchObject({
+      requested_model: 'openrouter/free',
+      resolved_model: 'resolved/free-model',
+      finish_reason: 'stop',
+      content_present: true,
+      content_type: 'string',
+      fallback_attempt: 0,
+      usage_prompt_tokens: 321,
+      usage_completion_tokens: 123,
+      usage_total_tokens: 444
+    });
+    expect(JSON.stringify(shapeLog)).not.toContain('mensagem privada do cliente');
+    expect(JSON.stringify(shapeLog)).not.toContain(validDecision.reply);
   });
 
   it('rejects invalid fallback output', async () => {

@@ -23,6 +23,10 @@ Check `contact.ai_enabled`, handoff status, and anti-loop mapping. Anti-loop is 
 Duplicate response:
 Check webhook idempotency, outbound message records, provider message IDs, and whether retries were acknowledged.
 
+Concurrent messages in one conversation:
+Per-conversation serialization / processing lock is a planned improvement. It is intentionally not
+implemented with the OpenRouter output-budget change, so truncation recovery can be validated first.
+
 Secrets missing:
 Check Cloudflare Worker variables and local `.dev.vars`. Never print secret values.
 
