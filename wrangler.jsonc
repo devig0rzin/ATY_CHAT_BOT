@@ -11,6 +11,7 @@
     "AI_TEMPERATURE": "0.4",
     "AI_REQUEST_TIMEOUT_MS": "30000",
     "INBOUND_AUTOREPLY_ENABLED": "true",
+    "UAZAPI_BASE_URL": "https://automationtoyou.uazapi.com",
     "UAZAPI_OUTBOUND_ENABLED": "true",
     "UAZAPI_DEBUG_PAYLOAD": "false",
     "UAZAPI_REQUEST_TIMEOUT_MS": "30000",
