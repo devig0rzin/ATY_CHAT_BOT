@@ -76,6 +76,26 @@ describe('WhatsApp autoreply chunking', () => {
     expect(processed).toHaveBeenCalledOnce();
     expect(failed).not.toHaveBeenCalled();
   });
+
+  it('uses one safe outbound fallback when the AI returns a silent decision', async () => {
+    const savedMessages: Array<{ direction: string; content: string; providerMessageId?: string }> =
+      [];
+    mockPersistentConversation(savedMessages);
+    const fetch = mockProviders([200], '', false);
+
+    const response = await postWebhook();
+    const body = (await response.json()) as {
+      data: { autoreply: { sent: boolean; chunks_sent: number; chunks_total: number } };
+    };
+
+    expect(response.status).toBe(202);
+    expect(body.data.autoreply).toMatchObject({ sent: true, chunks_sent: 1, chunks_total: 1 });
+    expect(fetch.mock.calls.filter(([url]) => String(url).endsWith('/send/text'))).toHaveLength(1);
+    expect(savedMessages.filter((message) => message.direction === 'outbound')).toEqual([
+      expect.objectContaining({ content: expect.any(String) })
+    ]);
+    expect(savedMessages.find((message) => message.direction === 'outbound')?.content).not.toBe('');
+  });
 });
 
 function mockPersistentConversation(
@@ -103,14 +123,14 @@ function mockPersistentConversation(
   });
 }
 
-function mockProviders(outboundStatuses: number[]) {
+function mockProviders(outboundStatuses: number[], reply = longReply, shouldReply = true) {
   let outboundIndex = 0;
   const fetch = vi.fn(async (url: string) => {
     if (url.endsWith('/chat/completions')) {
       return new Response(
         JSON.stringify({
           model: 'resolved/free-model',
-          choices: [{ message: { content: JSON.stringify(validDecision(longReply)) } }]
+          choices: [{ message: { content: JSON.stringify(validDecision(reply, shouldReply)) } }]
         }),
         { status: 200, headers: { 'content-type': 'application/json' } }
       );
@@ -157,9 +177,9 @@ function postWebhook() {
   );
 }
 
-function validDecision(reply: string) {
+function validDecision(reply: string, shouldReply = true) {
   return {
-    should_reply: true,
+    should_reply: shouldReply,
     reply,
     intent: 'automation_consulting',
     confidence: 0.9,

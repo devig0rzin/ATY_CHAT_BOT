@@ -142,6 +142,9 @@ describe('OpenRouter integration', () => {
       "Answer the user's latest message directly before pursuing any secondary goal."
     );
     expect(systemPrompt).toContain('must never determine the topic');
+    expect(systemPrompt).toContain(
+      'Set should_reply to true and provide a non-empty, direct reply.'
+    );
     expect(systemPrompt).toContain('Official website: https://www.automationtoyou.com.br/');
     expect(conversation).toContain('CURRENT USER MESSAGE (respond to this first): Qual meu nome?');
     expect(conversation).toContain('Long-term memory:');

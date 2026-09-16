@@ -25,6 +25,7 @@ import type { NormalizedUazapiInboundMessage } from '../integrations/uazapi/type
 import type { UazapiSendTextResult } from '../integrations/uazapi/provider';
 
 const maxBodyBytes = 256 * 1024;
+const inboundReplyFallback = 'Oi! Recebi sua mensagem. Como posso ajudar?';
 
 export class WebhookService {
   private readonly repository: WebhookEventsRepository;
@@ -258,7 +259,16 @@ export class WebhookService {
       recent
     });
 
-    if (!decision.should_reply || !decision.reply.trim()) {
+    const aiReply = decision.reply.trim();
+    const useReplyFallback = !decision.handoff_requested && (!decision.should_reply || !aiReply);
+    if (useReplyFallback) {
+      logger.warn('ai.decision.reply_fallback', {
+        provider: 'openrouter',
+        reason: !aiReply ? 'empty_reply' : 'should_reply_false'
+      });
+    }
+
+    if ((!decision.should_reply || !aiReply) && !useReplyFallback) {
       logger.info('uazapi.autoreply.skipped', {
         provider: 'uazapi',
         reason: 'ai_no_reply'
@@ -291,10 +301,13 @@ export class WebhookService {
       }
     }
 
-    const chunks = splitWhatsAppReply(decision.reply, {
-      softLimit: config.WHATSAPP_REPLY_SOFT_LIMIT,
-      maxChunks: config.WHATSAPP_REPLY_MAX_CHUNKS
-    });
+    const chunks = splitWhatsAppReply(
+      useReplyFallback ? aiReply || inboundReplyFallback : aiReply,
+      {
+        softLimit: config.WHATSAPP_REPLY_SOFT_LIMIT,
+        maxChunks: config.WHATSAPP_REPLY_MAX_CHUNKS
+      }
+    );
     const outbound = createUazapiProvider(this.env, requestId);
     const sentResults: UazapiSendTextResult[] = [];
 
