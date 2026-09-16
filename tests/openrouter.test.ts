@@ -113,6 +113,93 @@ describe('OpenRouter integration', () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it('prioritizes the current message while retaining memory, history, and company knowledge', async () => {
+    const fetch = mockOpenRouterFetch(200, {
+      model: 'openrouter/free',
+      choices: [
+        { message: { content: JSON.stringify({ ...validDecision, reply: 'Seu nome e Lucas.' }) } }
+      ]
+    });
+
+    const decision = await new OpenRouterProvider(getConfig(openRouterEnv)).generateReply({
+      message: 'Qual meu nome?',
+      requestId: crypto.randomUUID(),
+      memory: {
+        summary: 'Lucas possui uma clinica.',
+        facts_json: JSON.stringify(['name = Lucas', 'business = clinica']),
+        open_loops_json: JSON.stringify([]),
+        current_intent: 'automation_consulting'
+      },
+      recent: [{ direction: 'inbound', content: 'Tenho uma clinica.' }]
+    });
+
+    const requestBody = JSON.parse(String((fetch.mock.calls[0] as any[])[1]?.body));
+    const systemPrompt = String(requestBody.messages[0].content);
+    const conversation = String(requestBody.messages[1].content);
+
+    expect(decision.reply).toContain('Lucas');
+    expect(systemPrompt).toContain(
+      "Answer the user's latest message directly before pursuing any secondary goal."
+    );
+    expect(systemPrompt).toContain('must never determine the topic');
+    expect(systemPrompt).toContain('Official website: https://www.automationtoyou.com.br/');
+    expect(conversation).toContain('CURRENT USER MESSAGE (respond to this first): Qual meu nome?');
+    expect(conversation).toContain('Long-term memory:');
+    expect(conversation).toContain('Recent conversation:');
+    expect(conversation.indexOf('CURRENT USER MESSAGE')).toBeLessThan(
+      conversation.indexOf('Long-term memory:')
+    );
+    expect(conversation.indexOf('Long-term memory:')).toBeLessThan(
+      conversation.indexOf('Recent conversation:')
+    );
+  });
+
+  it.each([
+    {
+      label: 'answers a dental-service question directly with known business context',
+      message: 'Como funciona um bot para atendimento para dentista?',
+      reply:
+        'Para uma clinica odontologica, o bot atende pelo WhatsApp, faz triagem e ajuda no agendamento.',
+      expected: 'odontologica',
+      memory: {
+        summary: 'Lucas possui uma clinica.',
+        facts_json: JSON.stringify(['business = clinica']),
+        open_loops_json: JSON.stringify([]),
+        current_intent: 'automation_consulting'
+      }
+    },
+    {
+      label: 'answers a website question with the official URL',
+      message: 'Voces tem site?',
+      reply: 'Sim: https://www.automationtoyou.com.br/',
+      expected: 'https://www.automationtoyou.com.br/'
+    },
+    {
+      label: 'addresses price and operation without inventing a price',
+      message: 'Quanto custa e como funciona?',
+      reply:
+        'O valor depende do escopo. Podemos entender seu processo e explicar como a automacao funciona.',
+      expected: 'valor'
+    }
+  ])('keeps direct mock behavior for $label', async ({ message, reply, expected, memory }) => {
+    const fetch = mockOpenRouterFetch(200, {
+      model: 'openrouter/free',
+      choices: [{ message: { content: JSON.stringify({ ...validDecision, reply }) } }]
+    });
+
+    const decision = await new OpenRouterProvider(getConfig(openRouterEnv)).generateReply({
+      message,
+      requestId: crypto.randomUUID(),
+      memory
+    });
+    const requestBody = JSON.parse(String((fetch.mock.calls[0] as any[])[1]?.body));
+
+    expect(decision.reply.toLowerCase()).toContain(expected.toLowerCase());
+    expect(String(requestBody.messages[1].content)).toContain(
+      `CURRENT USER MESSAGE (respond to this first): ${message}`
+    );
+  });
+
   it('parses JSON wrapped in markdown', async () => {
     mockOpenRouterFetch(200, {
       model: 'openrouter/free',

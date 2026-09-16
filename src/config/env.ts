@@ -35,7 +35,9 @@ const envSchema = z
     ADMIN_API_KEY: z.string().min(1).optional(),
     LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
     LOG_MESSAGE_CONTENT: booleanStringSchema,
-    AI_RECENT_MESSAGE_LIMIT: z.coerce.number().int().positive().default(12)
+    AI_RECENT_MESSAGE_LIMIT: z.coerce.number().int().positive().default(12),
+    WHATSAPP_REPLY_SOFT_LIMIT: z.coerce.number().int().positive().default(280),
+    WHATSAPP_REPLY_MAX_CHUNKS: z.coerce.number().int().min(1).max(2).default(2)
   })
   .superRefine((env, ctx) => {
     if (env.AI_MODE === 'openai' && !env.OPENAI_API_KEY) {

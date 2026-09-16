@@ -27,4 +27,6 @@ export interface Env {
   LOG_LEVEL?: string;
   LOG_MESSAGE_CONTENT?: string;
   AI_RECENT_MESSAGE_LIMIT?: string;
+  WHATSAPP_REPLY_SOFT_LIMIT?: string;
+  WHATSAPP_REPLY_MAX_CHUNKS?: string;
 }

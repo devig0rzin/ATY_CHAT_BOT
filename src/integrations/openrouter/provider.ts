@@ -210,12 +210,12 @@ export class OpenRouterProvider implements AIProvider {
 function buildSystemPrompt(): string {
   return [
     prompts.system,
+    prompts.safety,
+    prompts.memory,
     prompts.company,
     prompts.sales,
     prompts.qualification,
-    prompts.memory,
-    prompts.handoff,
-    prompts.safety
+    prompts.handoff
   ].join('\n\n');
 }
 
@@ -240,7 +240,7 @@ function buildUserPrompt(message: string): string {
   return [
     'Return only the AIDecision JSON object required by the response format.',
     'Do not add markdown, prose, reasoning, or text before or after the JSON.',
-    'Keep reply short, natural, and under 320 characters.',
+    'Keep reply short, natural, direct, and normally one to three sentences or about 300 characters.',
     'Include every required field. Use null for unknown nullable fields.',
     'Keep lead_patch and memory_patch complete with all required fields.',
     `User message: ${message}`
@@ -254,7 +254,12 @@ function buildConversationInput(context: OpenRouterProviderContext): string {
   const recent = context.recent?.length
     ? `Recent conversation: ${context.recent.map((item) => `${item.direction}: ${item.content ?? ''}`).join('\n')}`
     : 'Recent conversation: none';
-  return `${memory}\n${recent}\nCurrent message: ${context.message}`;
+  return [
+    `CURRENT USER MESSAGE (respond to this first): ${context.message}`,
+    'The context below may help answer the current message, but must not change its topic.',
+    memory,
+    recent
+  ].join('\n');
 }
 
 function safeArray(value: string | null): string[] {

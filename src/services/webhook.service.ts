@@ -12,6 +12,7 @@ import { sha256Hex } from '../lib/crypto';
 import { AppError, toAppError } from '../lib/errors';
 import { createLogger } from '../lib/logger';
 import { utcNow } from '../lib/time';
+import { splitWhatsAppReply } from '../lib/whatsapp-reply';
 import { createAIProvider } from '../integrations/openai/client';
 import { createUazapiProvider } from '../integrations/uazapi/client';
 import {
@@ -21,6 +22,7 @@ import {
 import type { Env } from '../types/env';
 import type { RequestContext } from '../types/api';
 import type { NormalizedUazapiInboundMessage } from '../integrations/uazapi/types';
+import type { UazapiSendTextResult } from '../integrations/uazapi/provider';
 
 const maxBodyBytes = 256 * 1024;
 
@@ -289,33 +291,84 @@ export class WebhookService {
       }
     }
 
-    const result = await createUazapiProvider(this.env, requestId).sendText({
-      number: inbound.phone,
-      text: decision.reply,
-      replyId: inbound.messageId
+    const chunks = splitWhatsAppReply(decision.reply, {
+      softLimit: config.WHATSAPP_REPLY_SOFT_LIMIT,
+      maxChunks: config.WHATSAPP_REPLY_MAX_CHUNKS
     });
+    const outbound = createUazapiProvider(this.env, requestId);
+    const sentResults: UazapiSendTextResult[] = [];
 
-    if (persistent) {
-      await this.messages.create({
-        conversationId: persistent.conversationId,
-        contactId: persistent.contactId,
-        providerMessageId: result.providerMessageId,
-        direction: 'outbound',
-        content: decision.reply,
-        aiGenerated: true,
-        now: utcNow()
-      });
-      logger.info('db.message.saved', { direction: 'outbound', ai_generated: true });
+    for (const [index, text] of chunks.entries()) {
+      let result;
+      try {
+        result = await outbound.sendText({
+          number: inbound.phone,
+          text,
+          replyId: inbound.messageId
+        });
+      } catch (cause) {
+        if (sentResults.length === 0) throw cause;
+
+        const error = toAppError(cause);
+        await this.errors.create({
+          requestId,
+          errorCode: 'UAZAPI_PARTIAL_OUTBOUND_FAILURE',
+          safeMessage: 'WhatsApp reply was partially sent',
+          now: utcNow()
+        });
+        logger.error('uazapi.autoreply.partial_failure', {
+          provider: 'uazapi',
+          sent_chunks: sentResults.length,
+          total_chunks: chunks.length,
+          failed_chunk: index + 1,
+          error_code: error.code
+        });
+        logger.info('uazapi.autoreply.completed', {
+          provider: 'uazapi',
+          status: sentResults[sentResults.length - 1].status,
+          chunks_sent: sentResults.length,
+          chunks_total: chunks.length,
+          partial: true
+        });
+        return {
+          sent: true,
+          partial: true,
+          ai_validated: true,
+          chunks_sent: sentResults.length,
+          chunks_total: chunks.length,
+          result: sentResults[0]
+        };
+      }
+
+      sentResults.push(result);
+      if (persistent) {
+        await this.messages.create({
+          conversationId: persistent.conversationId,
+          contactId: persistent.contactId,
+          providerMessageId: result.providerMessageId,
+          direction: 'outbound',
+          content: text,
+          aiGenerated: true,
+          now: utcNow()
+        });
+        logger.info('db.message.saved', { direction: 'outbound', ai_generated: true });
+      }
     }
 
+    const result = sentResults[sentResults.length - 1];
     logger.info('uazapi.autoreply.completed', {
       provider: 'uazapi',
-      status: result.status
+      status: result.status,
+      chunks_sent: sentResults.length,
+      chunks_total: chunks.length,
+      partial: false
     });
 
     return {
       sent: true,
       ai_validated: true,
+      chunks_sent: sentResults.length,
+      chunks_total: chunks.length,
       result
     };
   }

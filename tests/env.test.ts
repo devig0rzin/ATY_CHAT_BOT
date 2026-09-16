@@ -38,6 +38,8 @@ describe('environment boolean parsing', () => {
       AI_REQUEST_TIMEOUT_MS: '30000',
       AI_RECENT_MESSAGE_LIMIT: '12',
       OPENAI_MAX_OUTPUT_TOKENS: '800',
+      WHATSAPP_REPLY_SOFT_LIMIT: '280',
+      WHATSAPP_REPLY_MAX_CHUNKS: '2',
       UAZAPI_BASE_URL: 'https://example.uazapi.test',
       UAZAPI_TOKEN: 'test-uazapi-token',
       UAZAPI_OUTBOUND_ENABLED: 'true',
@@ -57,6 +59,8 @@ describe('environment boolean parsing', () => {
     expect(config.UAZAPI_DEBUG_PAYLOAD).toBe(false);
     expect(config.LOCAL_DEV_ROUTES_ENABLED).toBe(true);
     expect(config.INBOUND_AUTOREPLY_ENABLED).toBe(false);
+    expect(config.WHATSAPP_REPLY_SOFT_LIMIT).toBe(280);
+    expect(config.WHATSAPP_REPLY_MAX_CHUNKS).toBe(2);
   });
 
   it('defaults the real inbound autoreply gate to disabled', () => {
