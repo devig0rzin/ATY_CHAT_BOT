@@ -162,7 +162,7 @@ async function parseJson(response: Response): Promise<any> {
       httpStatus: 502,
       safeMessage: 'OpenRouter returned malformed JSON',
       cause,
-      metadata: { status: response.status }
+      metadata: { status: response.status, reason: 'malformed_provider_json' }
     });
   }
 }

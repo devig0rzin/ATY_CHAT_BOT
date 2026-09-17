@@ -611,6 +611,35 @@ describe('OpenRouter integration', () => {
     expect(decision.reply).toContain('ATY');
   });
 
+  it('falls back when the structured OpenRouter response body is malformed', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('{invalid', { status: 200, headers: { 'content-type': 'application/json' } })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            model: 'fallback/free-model',
+            choices: [{ message: { content: JSON.stringify(validDecision) } }]
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      );
+    vi.stubGlobal('fetch', fetch);
+
+    const decision = await new OpenRouterProvider(getConfig(openRouterEnv)).generateReply({
+      message: 'Oi',
+      requestId: crypto.randomUUID()
+    });
+
+    expect(decision).toMatchObject(validDecision);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(String(fetch.mock.calls[1][1]?.body)).response_format).toEqual({
+      type: 'json_object'
+    });
+  });
+
   it('falls back when structured output cannot be routed', async () => {
     const fetch = vi
       .fn()
