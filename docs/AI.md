@@ -53,6 +53,10 @@ GROQ_BASE_URL=https://api.groq.com/openai/v1
 
 Groq uses `response_format.type=json_schema` with `strict=true`, the same `AIDecision` schema, native `fetch`, `reasoning_effort=low`, and no automatic provider fallback. No real Groq call is part of the test suite.
 
+During free-tier development, the optional D1-backed coordination guard can be enabled with `AI_RATE_LIMIT_GUARD_ENABLED=true`. It serializes Groq calls globally, enforces `AI_MIN_REQUEST_INTERVAL_MS`, buffers inbound messages for `WHATSAPP_INBOUND_BUFFER_MS`, and performs at most `AI_RATE_LIMIT_MAX_RETRIES=1` retry after HTTP 429. `Retry-After` is respected when present. These values are intentionally conservative for development and can be reduced or disabled with a paid provider.
+
+Inbound messages remain persisted individually. The D1 coordination state only tracks the conversation batch cursor and locks; it does not change the `AIDecision` contract or message schema.
+
 Structured validation:
 
 - The app requests JSON Schema output through `response_format` when possible.

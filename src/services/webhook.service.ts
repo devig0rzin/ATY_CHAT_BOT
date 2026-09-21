@@ -24,6 +24,7 @@ import type { RequestContext } from '../types/api';
 import type { NormalizedUazapiInboundMessage } from '../integrations/uazapi/types';
 import type { UazapiSendTextResult } from '../integrations/uazapi/provider';
 import { ErrorAlertService } from './error-alert.service';
+import { AiCoordinator } from './ai-coordinator.service';
 
 const maxBodyBytes = 256 * 1024;
 const inboundReplyFallback = 'Oi! Recebi sua mensagem. Como posso ajudar?';
@@ -38,6 +39,7 @@ export class WebhookService {
   private readonly handoffs: HandoffsRepository;
   private readonly errors: ErrorsRepository;
   private readonly errorAlerts: ErrorAlertService;
+  private readonly aiCoordinator: AiCoordinator;
 
   constructor(private readonly env: Env) {
     this.repository = new WebhookEventsRepository(env.DB);
@@ -48,7 +50,9 @@ export class WebhookService {
     this.leads = new LeadsRepository(env.DB);
     this.handoffs = new HandoffsRepository(env.DB);
     this.errors = new ErrorsRepository(env.DB);
-    this.errorAlerts = new ErrorAlertService(getConfig(env));
+    const config = getConfig(env);
+    this.errorAlerts = new ErrorAlertService(config);
+    this.aiCoordinator = new AiCoordinator(env.DB, config);
   }
 
   async captureUazapiEvent(request: Request, context: RequestContext) {
@@ -196,8 +200,9 @@ export class WebhookService {
     config: ReturnType<typeof getConfig>,
     logger: ReturnType<typeof createLogger>,
     requestId: string,
-    persistent?: { contactId: string; conversationId: string; aiEnabled: boolean }
-  ) {
+    persistent?: { contactId: string; conversationId: string; aiEnabled: boolean },
+    coordinated = false
+  ): Promise<unknown> {
     if (!config.INBOUND_AUTOREPLY_ENABLED) {
       logger.info('uazapi.autoreply.skipped', {
         provider: 'uazapi',
@@ -230,6 +235,45 @@ export class WebhookService {
       return { sent: false, reason: 'ai_disabled' };
     }
 
+    if (
+      !coordinated &&
+      persistent &&
+      inbound &&
+      this.aiCoordinator.configured &&
+      config.WHATSAPP_INBOUND_BUFFER_MS > 0
+    ) {
+      logger.info('ai.buffer.started', {
+        provider: config.AI_MODE,
+        buffer_ms: config.WHATSAPP_INBOUND_BUFFER_MS
+      });
+      await delay(config.WHATSAPP_INBOUND_BUFFER_MS);
+      return this.aiCoordinator.waitForConversation(persistent.conversationId, logger, async () => {
+        const batch = await this.aiCoordinator.getInboundBatch(persistent.conversationId);
+        if (batch.length === 0) return { sent: false, reason: 'batch_empty' };
+        if (batch.length > 1) {
+          logger.info('ai.buffer.extended', { provider: config.AI_MODE, batch_size: batch.length });
+        }
+        logger.info('ai.batch.created', { provider: config.AI_MODE, batch_size: batch.length });
+        const latest = batch[batch.length - 1];
+        const latestInbound: NormalizedUazapiInboundMessage = {
+          ...inbound,
+          messageId: latest.provider_message_id ?? inbound.messageId,
+          text: latest.content
+        };
+        const result: unknown = await this.maybeAutoreply(
+          payload,
+          latestInbound,
+          config,
+          logger,
+          requestId,
+          persistent,
+          true
+        );
+        await this.aiCoordinator.markBatchProcessed(persistent.conversationId, batch, utcNow());
+        return result;
+      });
+    }
+
     logger.info('uazapi.message.normalized', {
       provider: inbound.provider,
       inbound_event: inbound.event,
@@ -255,12 +299,14 @@ export class WebhookService {
       has_memory: Boolean(memory),
       recent_count: recent.length
     });
-    const decision = await createAIProvider(this.env).generateReply({
-      message: inbound.text,
-      requestId,
-      memory,
-      recent
-    });
+    const decision = await this.aiCoordinator.withGroqRateLimit(logger, () =>
+      createAIProvider(this.env).generateReply({
+        message: inbound.text,
+        requestId,
+        memory,
+        recent
+      })
+    );
 
     const aiReply = decision.reply.trim();
     const useReplyFallback = !decision.handoff_requested && (!decision.should_reply || !aiReply);
@@ -411,6 +457,8 @@ export class WebhookService {
       provider: this.alertProvider(error.code),
       stage: this.alertProvider(error.code) === 'uazapi' ? 'webhook' : 'ai',
       httpStatus: error.httpStatus,
+      retryAfter:
+        typeof error.metadata?.retry_after === 'string' ? error.metadata.retry_after : undefined,
       model:
         typeof error.metadata?.model === 'string'
           ? error.metadata.model
@@ -467,4 +515,8 @@ export class WebhookService {
       aiEnabled: contact.ai_enabled === 1
     };
   }
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

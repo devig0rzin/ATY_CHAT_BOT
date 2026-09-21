@@ -132,8 +132,12 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
       model: config.GROQ_MODEL,
       status: response.status,
       retry_after: response.headers.get('retry-after') ?? undefined,
+      limit_requests: response.headers.get('x-ratelimit-limit-requests') ?? undefined,
       remaining_requests: response.headers.get('x-ratelimit-remaining-requests') ?? undefined,
-      remaining_tokens: response.headers.get('x-ratelimit-remaining-tokens') ?? undefined
+      reset_requests: response.headers.get('x-ratelimit-reset-requests') ?? undefined,
+      limit_tokens: response.headers.get('x-ratelimit-limit-tokens') ?? undefined,
+      remaining_tokens: response.headers.get('x-ratelimit-remaining-tokens') ?? undefined,
+      reset_tokens: response.headers.get('x-ratelimit-reset-tokens') ?? undefined
     };
     if (response.status === 429) {
       throw new AppError({

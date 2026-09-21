@@ -121,6 +121,8 @@ To test Gemini locally, set `AI_MODE=gemini` and paste the key only after `GEMIN
 
 To test the Groq provider locally with mocks, use `AI_MODE=groq`, set `GROQ_API_KEY` only in `.env`, and keep `GROQ_MODEL=openai/gpt-oss-20b`. Never place `GROQ_API_KEY` in `wrangler.jsonc`, Git, fixtures, public vars, or logs. The automated tests do not call Groq.
 
+For the free-tier development guard, use `AI_RATE_LIMIT_GUARD_ENABLED=true`, `AI_MIN_REQUEST_INTERVAL_MS=8000`, `AI_RATE_LIMIT_MAX_RETRIES=1`, and `WHATSAPP_INBOUND_BUFFER_MS=3000`. The guard uses D1-backed locks/state, so it does not depend on Worker-global maps or timers. A 429 is retried at most once, using `Retry-After` when available; a final failure is recorded and sent through the existing technical alert path. These conservative values may be reduced or disabled when using a paid provider.
+
 Run the local Worker:
 
 ```powershell

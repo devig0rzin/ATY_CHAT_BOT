@@ -4,6 +4,13 @@ export interface StoredMessage {
   content: string | null;
   created_at: string;
 }
+
+export interface StoredInboundMessage {
+  id: string;
+  provider_message_id: string | null;
+  content: string;
+  created_at: string;
+}
 export class MessagesRepository {
   constructor(private readonly db?: D1Database) {}
   get configured(): boolean {
