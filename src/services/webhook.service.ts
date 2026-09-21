@@ -23,7 +23,10 @@ import type { Env } from '../types/env';
 import type { RequestContext } from '../types/api';
 import type { NormalizedUazapiInboundMessage } from '../integrations/uazapi/types';
 import type { UazapiSendTextResult } from '../integrations/uazapi/provider';
+import type { UazapiProvider } from '../integrations/uazapi/provider';
+import type { AIDecision } from '../schemas/ai.schemas';
 import { ErrorAlertService } from './error-alert.service';
+import type { ErrorAlertSender } from './error-alert.service';
 import { AiCoordinator } from './ai-coordinator.service';
 
 const maxBodyBytes = 256 * 1024;
@@ -40,8 +43,17 @@ export class WebhookService {
   private readonly errors: ErrorsRepository;
   private readonly errorAlerts: ErrorAlertService;
   private readonly aiCoordinator: AiCoordinator;
+  private readonly outboundSender?: Pick<UazapiProvider, 'sendText'>;
+  private readonly decisionObserver?: (decision: AIDecision) => void;
 
-  constructor(private readonly env: Env) {
+  constructor(
+    private readonly env: Env,
+    dependencies: {
+      outboundSender?: Pick<UazapiProvider, 'sendText'>;
+      alertSender?: ErrorAlertSender;
+      decisionObserver?: (decision: AIDecision) => void;
+    } = {}
+  ) {
     this.repository = new WebhookEventsRepository(env.DB);
     this.contacts = new ContactsRepository(env.DB);
     this.conversations = new ConversationsRepository(env.DB);
@@ -51,8 +63,10 @@ export class WebhookService {
     this.handoffs = new HandoffsRepository(env.DB);
     this.errors = new ErrorsRepository(env.DB);
     const config = getConfig(env);
-    this.errorAlerts = new ErrorAlertService(config);
+    this.errorAlerts = new ErrorAlertService(config, dependencies.alertSender);
     this.aiCoordinator = new AiCoordinator(env.DB, config);
+    this.outboundSender = dependencies.outboundSender;
+    this.decisionObserver = dependencies.decisionObserver;
   }
 
   async captureUazapiEvent(request: Request, context: RequestContext) {
@@ -307,6 +321,7 @@ export class WebhookService {
         recent
       })
     );
+    this.decisionObserver?.(decision);
 
     const aiReply = decision.reply.trim();
     const useReplyFallback = !decision.handoff_requested && (!decision.should_reply || !aiReply);
@@ -357,7 +372,7 @@ export class WebhookService {
         maxChunks: config.WHATSAPP_REPLY_MAX_CHUNKS
       }
     );
-    const outbound = createUazapiProvider(this.env, requestId);
+    const outbound = this.outboundSender ?? createUazapiProvider(this.env, requestId);
     const sentResults: UazapiSendTextResult[] = [];
 
     for (const [index, text] of chunks.entries()) {

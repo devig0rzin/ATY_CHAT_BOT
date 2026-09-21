@@ -67,6 +67,27 @@ describe('AiCoordinator', () => {
     expect(order).toEqual(['first-start', 'first-end', 'second']);
   });
 
+  it('mantém conversas diferentes independentes e sem deadlock', async () => {
+    const db = createD1();
+    const coordinator = new AiCoordinator(
+      db as unknown as D1Database,
+      config({ AI_MIN_REQUEST_INTERVAL_MS: '0' })
+    );
+    const started: string[] = [];
+    const results = await Promise.all([
+      coordinator.waitForConversation('conversation-a', logger(), async () => {
+        started.push('a');
+        return 'a-ok';
+      }),
+      coordinator.waitForConversation('conversation-b', logger(), async () => {
+        started.push('b');
+        return 'b-ok';
+      })
+    ]);
+    expect(started.sort()).toEqual(['a', 'b']);
+    expect(results).toEqual(['a-ok', 'b-ok']);
+  });
+
   it('recupera HTTP 429 com exatamente um retry', async () => {
     const db = createD1();
     const coordinator = new AiCoordinator(
