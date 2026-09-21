@@ -5,11 +5,17 @@
   "compatibility_date": "2026-09-01",
   "vars": {
     "APP_ENV": "production",
-    "AI_MODE": "openrouter",
+    "AI_MODE": "groq",
+    "GROQ_MODEL": "openai/gpt-oss-20b",
+    "GROQ_BASE_URL": "https://api.groq.com/openai/v1",
     "OPENROUTER_BASE_URL": "https://openrouter.ai/api/v1",
     "OPENROUTER_MODEL": "openrouter/free",
     "AI_TEMPERATURE": "0.4",
     "AI_REQUEST_TIMEOUT_MS": "30000",
+    "AI_RATE_LIMIT_GUARD_ENABLED": "true",
+    "AI_MIN_REQUEST_INTERVAL_MS": "8000",
+    "AI_RATE_LIMIT_MAX_RETRIES": "1",
+    "WHATSAPP_INBOUND_BUFFER_MS": "3000",
     "INBOUND_AUTOREPLY_ENABLED": "true",
     "UAZAPI_BASE_URL": "https://automationtoyou.uazapi.com",
     "UAZAPI_OUTBOUND_ENABLED": "true",
@@ -22,8 +28,12 @@
     "LOCAL_INBOUND_AUTOREPLY_ENABLED": "false",
     "AI_RECENT_MESSAGE_LIMIT": "12",
     "OPENAI_MAX_OUTPUT_TOKENS": "1200",
+    "AI_DEBUG_RESPONSE": "false",
     "WHATSAPP_REPLY_SOFT_LIMIT": "280",
-    "WHATSAPP_REPLY_MAX_CHUNKS": "2"
+    "WHATSAPP_REPLY_MAX_CHUNKS": "2",
+    "TEST_ERROR_ALERT_ENABLED": "true",
+    "TEST_ERROR_ALERT_NUMBER": "5511976388220",
+    "TEST_ERROR_ALERT_COOLDOWN_SECONDS": "60"
   },
   "d1_databases": [
     {
