@@ -10,6 +10,7 @@ export interface GeminiClient {
     model: string;
     prompt: string;
     timeoutMs: number;
+    maxOutputTokens: number;
   }): Promise<GeminiResult>;
 }
 
@@ -49,9 +50,10 @@ export class GeminiProvider implements AIProvider {
         apiKey: this.config.GEMINI_API_KEY,
         model: this.config.GEMINI_MODEL,
         prompt: buildPrompt(context),
-        timeoutMs: this.config.AI_REQUEST_TIMEOUT_MS
+        timeoutMs: this.config.AI_REQUEST_TIMEOUT_MS,
+        maxOutputTokens: 1600
       });
-      if (!result.text || result.finishReason === 'MAX_TOKENS') {
+      if (!result.text) {
         throw new AppError({
           code: 'GEMINI_INVALID_RESPONSE',
           httpStatus: 502,
@@ -118,6 +120,7 @@ class HttpGeminiClient implements GeminiClient {
     model: string;
     prompt: string;
     timeoutMs: number;
+    maxOutputTokens: number;
   }): Promise<GeminiResult> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
@@ -132,9 +135,8 @@ class HttpGeminiClient implements GeminiClient {
             contents: [{ parts: [{ text: input.prompt }] }],
             generationConfig: {
               temperature: 0.4,
-              maxOutputTokens: 600,
-              responseMimeType: 'application/json',
-              responseSchema: aiDecisionJsonSchema
+              maxOutputTokens: input.maxOutputTokens,
+              responseMimeType: 'application/json'
             }
           })
         }
