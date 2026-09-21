@@ -70,14 +70,18 @@ export class Logger {
 }
 
 export function createLogger(
-  env: { LOG_LEVEL?: string; LOG_MESSAGE_CONTENT?: string },
+  env: { LOG_LEVEL?: string; LOG_MESSAGE_CONTENT?: string | boolean },
   requestId: string
 ) {
   const configured =
     env.LOG_LEVEL === 'debug' || env.LOG_LEVEL === 'warn' || env.LOG_LEVEL === 'error'
       ? env.LOG_LEVEL
       : 'info';
-  return new Logger(requestId, configured, env.LOG_MESSAGE_CONTENT === 'true');
+  return new Logger(
+    requestId,
+    configured,
+    env.LOG_MESSAGE_CONTENT === 'true' || env.LOG_MESSAGE_CONTENT === true
+  );
 }
 
 export function redact(value: unknown, logMessageContent = false): unknown {

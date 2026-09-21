@@ -2,6 +2,8 @@ export interface Env {
   DB?: D1Database;
   APP_ENV?: string;
   AI_MODE?: string;
+  GEMINI_API_KEY?: string;
+  GEMINI_MODEL?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
   OPENAI_MAX_OUTPUT_TOKENS?: string;
@@ -29,4 +31,7 @@ export interface Env {
   AI_RECENT_MESSAGE_LIMIT?: string;
   WHATSAPP_REPLY_SOFT_LIMIT?: string;
   WHATSAPP_REPLY_MAX_CHUNKS?: string;
+  TEST_ERROR_ALERT_ENABLED?: string;
+  TEST_ERROR_ALERT_NUMBER?: string;
+  TEST_ERROR_ALERT_COOLDOWN_SECONDS?: string;
 }

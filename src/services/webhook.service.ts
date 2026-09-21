@@ -23,6 +23,7 @@ import type { Env } from '../types/env';
 import type { RequestContext } from '../types/api';
 import type { NormalizedUazapiInboundMessage } from '../integrations/uazapi/types';
 import type { UazapiSendTextResult } from '../integrations/uazapi/provider';
+import { ErrorAlertService } from './error-alert.service';
 
 const maxBodyBytes = 256 * 1024;
 const inboundReplyFallback = 'Oi! Recebi sua mensagem. Como posso ajudar?';
@@ -36,6 +37,7 @@ export class WebhookService {
   private readonly leads: LeadsRepository;
   private readonly handoffs: HandoffsRepository;
   private readonly errors: ErrorsRepository;
+  private readonly errorAlerts: ErrorAlertService;
 
   constructor(private readonly env: Env) {
     this.repository = new WebhookEventsRepository(env.DB);
@@ -46,6 +48,7 @@ export class WebhookService {
     this.leads = new LeadsRepository(env.DB);
     this.handoffs = new HandoffsRepository(env.DB);
     this.errors = new ErrorsRepository(env.DB);
+    this.errorAlerts = new ErrorAlertService(getConfig(env));
   }
 
   async captureUazapiEvent(request: Request, context: RequestContext) {
@@ -403,7 +406,29 @@ export class WebhookService {
     } catch {
       logger.error('webhook.failure_recording_failed', { error_code: error.code });
     }
+    await this.errorAlerts.notify(error, {
+      requestId,
+      provider: this.alertProvider(error.code),
+      stage: this.alertProvider(error.code) === 'uazapi' ? 'webhook' : 'ai',
+      httpStatus: error.httpStatus,
+      model:
+        typeof error.metadata?.model === 'string'
+          ? error.metadata.model
+          : typeof error.metadata?.resolved_model === 'string'
+            ? error.metadata.resolved_model
+            : undefined,
+      processingStatus: 'failed',
+      isErrorAlert: false
+    });
     logger.error('webhook.failed', { error_code: error.code });
+  }
+
+  private alertProvider(errorCode: string): string {
+    if (errorCode.startsWith('GEMINI_')) return 'gemini';
+    if (errorCode.startsWith('OPENROUTER_')) return 'openrouter';
+    if (errorCode.startsWith('OPENAI_')) return 'openai';
+    if (errorCode.startsWith('UAZAPI_')) return 'uazapi';
+    return 'worker';
   }
 
   private async persistInbound(

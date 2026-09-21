@@ -10,7 +10,9 @@ const booleanStringSchema = z
 const envSchema = z
   .object({
     APP_ENV: z.enum(['local', 'production']).default('production'),
-    AI_MODE: z.enum(['mock', 'openai', 'openrouter']).default('mock'),
+    AI_MODE: z.enum(['mock', 'openai', 'openrouter', 'gemini']).default('mock'),
+    GEMINI_API_KEY: z.string().optional(),
+    GEMINI_MODEL: z.string().default('gemini-3.7-flash'),
     OPENAI_API_KEY: z.string().optional(),
     OPENAI_MODEL: z.string().optional(),
     OPENAI_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(600),
@@ -37,7 +39,10 @@ const envSchema = z
     LOG_MESSAGE_CONTENT: booleanStringSchema,
     AI_RECENT_MESSAGE_LIMIT: z.coerce.number().int().positive().default(12),
     WHATSAPP_REPLY_SOFT_LIMIT: z.coerce.number().int().positive().default(280),
-    WHATSAPP_REPLY_MAX_CHUNKS: z.coerce.number().int().min(1).max(2).default(2)
+    WHATSAPP_REPLY_MAX_CHUNKS: z.coerce.number().int().min(1).max(2).default(2),
+    TEST_ERROR_ALERT_ENABLED: booleanStringSchema,
+    TEST_ERROR_ALERT_NUMBER: z.string().default('5511976388220'),
+    TEST_ERROR_ALERT_COOLDOWN_SECONDS: z.coerce.number().int().nonnegative().default(60)
   })
   .superRefine((env, ctx) => {
     if (env.AI_MODE === 'openai' && !env.OPENAI_API_KEY) {
@@ -45,6 +50,20 @@ const envSchema = z
         code: 'custom',
         path: ['OPENAI_API_KEY'],
         message: 'Required when AI_MODE=openai'
+      });
+    }
+    if (env.AI_MODE === 'gemini' && !env.GEMINI_API_KEY) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['GEMINI_API_KEY'],
+        message: 'Required when AI_MODE=gemini'
+      });
+    }
+    if (env.TEST_ERROR_ALERT_NUMBER !== '5511976388220') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['TEST_ERROR_ALERT_NUMBER'],
+        message: 'Technical alert number is fixed'
       });
     }
     if (env.WEBHOOK_AUTH_MODE === 'header' && !env.WEBHOOK_SECRET) {
