@@ -52,11 +52,13 @@ devRoutes.post('/ai-test', async (c) => {
   return successResponse(c, {
     provider: config.AI_MODE,
     model:
-      config.AI_MODE === 'openrouter' && 'resolved_model' in decision
+      (config.AI_MODE === 'openrouter' || config.AI_MODE === 'groq') && 'resolved_model' in decision
         ? (decision as { resolved_model?: string }).resolved_model
         : config.AI_MODE === 'openrouter'
           ? config.OPENROUTER_MODEL
-          : 'mock',
+          : config.AI_MODE === 'groq'
+            ? config.GROQ_MODEL
+            : 'mock',
     decision
   });
 });
@@ -143,11 +145,13 @@ devRoutes.post('/chat-test', async (c) => {
   return successResponse(c, {
     provider: config.AI_MODE,
     model:
-      config.AI_MODE === 'openrouter' && 'resolved_model' in decision
+      (config.AI_MODE === 'openrouter' || config.AI_MODE === 'groq') && 'resolved_model' in decision
         ? (decision as { resolved_model?: string }).resolved_model
         : config.AI_MODE === 'openrouter'
           ? config.OPENROUTER_MODEL
-          : 'mock',
+          : config.AI_MODE === 'groq'
+            ? config.GROQ_MODEL
+            : 'mock',
     decision,
     outbound
   });

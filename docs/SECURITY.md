@@ -2,6 +2,8 @@
 
 Secrets are supplied through Cloudflare Worker environment variables or the local `.env`; they are not committed. The repository template contains placeholders only.
 
+`GROQ_API_KEY` is a secret and must never be placed in `wrangler.jsonc`, public vars, fixtures, or logs.
+
 Admin routes require `Authorization: Bearer <ADMIN_API_KEY>`. Keys must not be placed in query strings.
 
 Webhook authentication is configurable because official UAZAPI webhook security is not yet documented. Current modes are `off` for local development and `header` with `X-ATY-Webhook-Secret` for ATY-owned test clients. This does not claim UAZAPI supports that header.

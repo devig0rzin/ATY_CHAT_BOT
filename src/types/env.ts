@@ -4,6 +4,9 @@ export interface Env {
   AI_MODE?: string;
   GEMINI_API_KEY?: string;
   GEMINI_MODEL?: string;
+  GROQ_API_KEY?: string;
+  GROQ_MODEL?: string;
+  GROQ_BASE_URL?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
   OPENAI_MAX_OUTPUT_TOKENS?: string;

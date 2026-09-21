@@ -425,6 +425,7 @@ export class WebhookService {
 
   private alertProvider(errorCode: string): string {
     if (errorCode.startsWith('GEMINI_')) return 'gemini';
+    if (errorCode.startsWith('GROQ_')) return 'groq';
     if (errorCode.startsWith('OPENROUTER_')) return 'openrouter';
     if (errorCode.startsWith('OPENAI_')) return 'openai';
     if (errorCode.startsWith('UAZAPI_')) return 'uazapi';

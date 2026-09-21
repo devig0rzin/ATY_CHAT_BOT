@@ -8,6 +8,7 @@ Providers:
 - `OpenAIProvider` exists as a configurable adapter but is not used by webhook capture mode.
 - `OpenRouterProvider` calls OpenRouter through native `fetch` and validates the application-level `AIDecision`.
 - `GeminiProvider` reads `GEMINI_API_KEY` from the Worker environment and validates the application-level `AIDecision`.
+- `GroqProvider` calls the Groq OpenAI-compatible API with strict structured outputs and validates the application-level `AIDecision`.
 
 Provider selection is controlled by `AI_MODE`:
 
@@ -15,6 +16,7 @@ Provider selection is controlled by `AI_MODE`:
 - `openai`
 - `openrouter`
 - `gemini`
+- `groq`
 
 Default mode remains `mock`.
 
@@ -39,6 +41,17 @@ GEMINI_MODEL=gemini-3.7-flash
 ```
 
 For local development, put the key only in `.env`. For production, configure it as a Cloudflare secret with `npx wrangler secret put GEMINI_API_KEY`; do not place the production value in `wrangler.jsonc` or commit it.
+
+Groq configuration for local, mock-only tests:
+
+```text
+AI_MODE=groq
+GROQ_API_KEY=<local secret>
+GROQ_MODEL=openai/gpt-oss-20b
+GROQ_BASE_URL=https://api.groq.com/openai/v1
+```
+
+Groq uses `response_format.type=json_schema` with `strict=true`, the same `AIDecision` schema, native `fetch`, `reasoning_effort=low`, and no automatic provider fallback. No real Groq call is part of the test suite.
 
 Structured validation:
 

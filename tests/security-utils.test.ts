@@ -13,6 +13,7 @@ describe('security utilities', () => {
       redact({
         OPENAI_API_KEY: 'secret',
         GEMINI_API_KEY: 'gemini-secret',
+        GROQ_API_KEY: 'groq-secret',
         Authorization: 'Bearer secret',
         phone: '5511945177464',
         message: 'hello'
@@ -20,6 +21,7 @@ describe('security utilities', () => {
     ).toEqual({
       OPENAI_API_KEY: '[REDACTED]',
       GEMINI_API_KEY: '[REDACTED]',
+      GROQ_API_KEY: '[REDACTED]',
       Authorization: '[REDACTED]',
       phone: '*********7464',
       message: '[REDACTED]'

@@ -10,9 +10,12 @@ const booleanStringSchema = z
 const envSchema = z
   .object({
     APP_ENV: z.enum(['local', 'production']).default('production'),
-    AI_MODE: z.enum(['mock', 'openai', 'openrouter', 'gemini']).default('mock'),
+    AI_MODE: z.enum(['mock', 'openai', 'openrouter', 'gemini', 'groq']).default('mock'),
     GEMINI_API_KEY: z.string().optional(),
     GEMINI_MODEL: z.string().default('gemini-3.7-flash'),
+    GROQ_API_KEY: z.string().optional(),
+    GROQ_MODEL: z.string().default('openai/gpt-oss-20b'),
+    GROQ_BASE_URL: z.string().url().default('https://api.groq.com/openai/v1'),
     OPENAI_API_KEY: z.string().optional(),
     OPENAI_MODEL: z.string().optional(),
     OPENAI_MAX_OUTPUT_TOKENS: z.coerce.number().int().positive().default(600),
@@ -57,6 +60,13 @@ const envSchema = z
         code: 'custom',
         path: ['GEMINI_API_KEY'],
         message: 'Required when AI_MODE=gemini'
+      });
+    }
+    if (env.AI_MODE === 'groq' && !env.GROQ_API_KEY) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['GROQ_API_KEY'],
+        message: 'Required when AI_MODE=groq'
       });
     }
     if (env.TEST_ERROR_ALERT_NUMBER !== '5511976388220') {

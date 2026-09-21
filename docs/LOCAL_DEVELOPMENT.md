@@ -119,6 +119,8 @@ Never commit `.env` and never paste the API key into chat or logs.
 
 To test Gemini locally, set `AI_MODE=gemini` and paste the key only after `GEMINI_API_KEY=` in the project-root `.env` file. Tests use mocked clients and do not call Gemini.
 
+To test the Groq provider locally with mocks, use `AI_MODE=groq`, set `GROQ_API_KEY` only in `.env`, and keep `GROQ_MODEL=openai/gpt-oss-20b`. Never place `GROQ_API_KEY` in `wrangler.jsonc`, Git, fixtures, public vars, or logs. The automated tests do not call Groq.
+
 Run the local Worker:
 
 ```powershell

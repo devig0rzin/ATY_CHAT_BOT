@@ -13,6 +13,7 @@ const secretKeys = [
   'OPENAI_API_KEY',
   'OPENROUTER_API_KEY',
   'GEMINI_API_KEY',
+  'GROQ_API_KEY',
   'UAZAPI_TOKEN',
   'ADMIN_API_KEY',
   'WEBHOOK_SECRET'
