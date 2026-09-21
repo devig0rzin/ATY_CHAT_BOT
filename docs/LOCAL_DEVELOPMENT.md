@@ -13,6 +13,8 @@ Create `.env` with safe local values only. This file is local-only and must neve
 ```text
 APP_ENV=local
 AI_MODE=openrouter
+GEMINI_API_KEY=<LOCAL SECRET WHEN AI_MODE=gemini>
+GEMINI_MODEL=gemini-3.7-flash
 OPENROUTER_API_KEY=<LOCAL SECRET>
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
 OPENROUTER_MODEL=openrouter/free
@@ -114,6 +116,8 @@ LOCAL_DEV_ROUTES_ENABLED=true
 ```
 
 Never commit `.env` and never paste the API key into chat or logs.
+
+To test Gemini locally, set `AI_MODE=gemini` and paste the key only after `GEMINI_API_KEY=` in the project-root `.env` file. Tests use mocked clients and do not call Gemini.
 
 Run the local Worker:
 

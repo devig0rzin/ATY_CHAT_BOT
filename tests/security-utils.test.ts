@@ -12,12 +12,14 @@ describe('security utilities', () => {
     expect(
       redact({
         OPENAI_API_KEY: 'secret',
+        GEMINI_API_KEY: 'gemini-secret',
         Authorization: 'Bearer secret',
         phone: '5511945177464',
         message: 'hello'
       })
     ).toEqual({
       OPENAI_API_KEY: '[REDACTED]',
+      GEMINI_API_KEY: '[REDACTED]',
       Authorization: '[REDACTED]',
       phone: '*********7464',
       message: '[REDACTED]'

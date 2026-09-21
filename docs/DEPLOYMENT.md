@@ -27,6 +27,7 @@ Before production deployment:
 - Create D1 database `aty-whatsapp-agent-db`.
 - Add the real D1 `database_id` to the `DB` binding.
 - Configure secrets through Cloudflare.
+- For Gemini production access, set the secret with `npx wrangler secret put GEMINI_API_KEY`; never commit or put the value in `wrangler.jsonc`.
 - Finalize UAZAPI webhook authentication from official documentation.
 - Provide official UAZAPI docs and one real webhook payload.
 - Keep `AI_MODE=mock` until OpenAI behavior has been reviewed.

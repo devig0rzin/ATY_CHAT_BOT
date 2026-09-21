@@ -7,12 +7,14 @@ Providers:
 - `MockAIProvider` returns a validated no-reply decision for safe local and test defaults.
 - `OpenAIProvider` exists as a configurable adapter but is not used by webhook capture mode.
 - `OpenRouterProvider` calls OpenRouter through native `fetch` and validates the application-level `AIDecision`.
+- `GeminiProvider` reads `GEMINI_API_KEY` from the Worker environment and validates the application-level `AIDecision`.
 
 Provider selection is controlled by `AI_MODE`:
 
 - `mock`
 - `openai`
 - `openrouter`
+- `gemini`
 
 Default mode remains `mock`.
 
@@ -28,6 +30,15 @@ OPENAI_MAX_OUTPUT_TOKENS=800
 ```
 
 OpenRouter uses `POST /chat/completions` with `Authorization: Bearer <OPENROUTER_API_KEY>`. The project uses native Worker-compatible Web APIs and does not use a heavy SDK.
+
+Gemini configuration:
+
+```text
+GEMINI_API_KEY=<local secret>
+GEMINI_MODEL=gemini-3.7-flash
+```
+
+For local development, put the key only in `.env`. For production, configure it as a Cloudflare secret with `npx wrangler secret put GEMINI_API_KEY`; do not place the production value in `wrangler.jsonc` or commit it.
 
 Structured validation:
 

@@ -1,6 +1,6 @@
 # Security
 
-Secrets are supplied through Cloudflare Worker environment variables or local `.dev.vars`; they are not committed. `.dev.vars.example` contains placeholders only.
+Secrets are supplied through Cloudflare Worker environment variables or the local `.env`; they are not committed. The repository template contains placeholders only.
 
 Admin routes require `Authorization: Bearer <ADMIN_API_KEY>`. Keys must not be placed in query strings.
 

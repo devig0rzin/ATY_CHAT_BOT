@@ -9,7 +9,14 @@ const levelRank: Record<LogLevel, number> = {
   error: 40
 };
 
-const secretKeys = ['OPENAI_API_KEY', 'UAZAPI_TOKEN', 'ADMIN_API_KEY', 'WEBHOOK_SECRET'];
+const secretKeys = [
+  'OPENAI_API_KEY',
+  'OPENROUTER_API_KEY',
+  'GEMINI_API_KEY',
+  'UAZAPI_TOKEN',
+  'ADMIN_API_KEY',
+  'WEBHOOK_SECRET'
+];
 const safeContentMetadataKeys = new Set(['content_type']);
 const credentialLikeKeys = new Set([
   'token',
