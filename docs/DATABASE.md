@@ -13,6 +13,7 @@ Then add the returned database ID to `wrangler.jsonc` under a `d1_databases` bin
 Migrations:
 
 - `0001_initial_schema.sql` creates contacts, conversations, messages, conversation memory, leads, handoffs, webhook events, outbound messages, and processing errors.
+- `0005_sales_and_audio_metadata.sql` adds progressive commercial qualification fields to leads and safe source/transcription status metadata to messages. It does not store audio binaries, media URLs, tokens, or transcripts outside the normal message content used by the AI.
 - `0002_indexes.sql` adds lookup and idempotency indexes.
 - `0003_persistent_conversation_indexes.sql` adds persistent conversation lookup indexes.
 - `0004_ai_coordination.sql` adds D1-backed AI conversation locks, batch cursors, and provider rate-limit state.

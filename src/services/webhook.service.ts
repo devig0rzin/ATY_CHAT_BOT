@@ -15,6 +15,7 @@ import { utcNow } from '../lib/time';
 import { splitWhatsAppReply } from '../lib/whatsapp-reply';
 import { createAIProvider } from '../integrations/openai/client';
 import { createUazapiProvider } from '../integrations/uazapi/client';
+import { AudioTranscriptionService } from '../integrations/groq/audio-transcription.service';
 import {
   getUazapiAutoreplySkipReason,
   normalizeUazapiEvent
@@ -234,6 +235,12 @@ export class WebhookService {
       return { sent: false, reason };
     }
 
+    if (inbound.isAudio) {
+      const prepared = await this.prepareAudioInbound(inbound, logger, requestId, persistent);
+      if (!prepared.inbound) return prepared.fallback;
+      inbound = prepared.inbound;
+    }
+
     if (config.APP_ENV === 'production' && config.AI_MODE === 'mock') {
       logger.error('configuration.invalid', {
         reason: 'production_autoreply_with_mock_ai'
@@ -349,7 +356,11 @@ export class WebhookService {
         utcNow()
       );
       await this.leads.merge(persistent.contactId, decision.lead_patch, utcNow());
-      await this.contacts.mergeProfile(persistent.contactId, decision.lead_patch, utcNow());
+      await this.contacts.mergeProfile(
+        persistent.contactId,
+        { ...decision.lead_patch, email: decision.lead_patch.email },
+        utcNow()
+      );
       logger.info('memory.updated', { provider: 'uazapi' });
       logger.info('lead.updated', { provider: 'uazapi' });
       if (decision.handoff_requested) {
@@ -521,6 +532,8 @@ export class WebhookService {
       direction: 'inbound',
       messageType: inbound.messageType,
       content: inbound.text,
+      sourceType: inbound.isAudio ? 'audio' : 'text',
+      transcriptionStatus: inbound.isAudio ? 'pending' : undefined,
       now
     });
     logger.info('db.message.saved', { direction: 'inbound', message_type: inbound.messageType });
@@ -528,6 +541,112 @@ export class WebhookService {
       contactId: contact.id,
       conversationId: conversation.id,
       aiEnabled: contact.ai_enabled === 1
+    };
+  }
+
+  private async prepareAudioInbound(
+    inbound: NormalizedUazapiInboundMessage,
+    logger: ReturnType<typeof createLogger>,
+    requestId: string,
+    persistent?: { contactId: string; conversationId: string; aiEnabled: boolean }
+  ): Promise<{ inbound?: NormalizedUazapiInboundMessage; fallback: unknown }> {
+    logger.info('audio.received', {
+      provider: 'uazapi',
+      message_type: inbound.messageType ?? null,
+      audio_media_status: inbound.audioMediaStatus ?? 'unconfirmed'
+    });
+    if (!inbound.audioMedia) {
+      const error = new AppError({
+        code: 'AUDIO_MEDIA_DOWNLOAD_ERROR',
+        httpStatus: 502,
+        safeMessage: 'Audio media structure is not confirmed for this UAZAPI payload',
+        metadata: { reason: 'audio_media_structure_unconfirmed' }
+      });
+      await this.messages.updateTranscriptionStatus(inbound.messageId, 'unconfirmed');
+      await this.errorAlerts.notify(error, {
+        requestId,
+        provider: 'groq',
+        stage: 'audio_transcription',
+        model: getConfig(this.env).GROQ_TRANSCRIPTION_MODEL
+      });
+      logger.warn('audio.media.unresolved', {
+        provider: 'uazapi',
+        reason: 'audio_media_structure_unconfirmed'
+      });
+      return { fallback: await this.sendAudioFallback(inbound, persistent, requestId) };
+    }
+
+    logger.info('audio.media.resolved', {
+      provider: 'uazapi',
+      mime_type: inbound.audioMedia.mimeType ?? null,
+      audio_size_bytes: inbound.audioMedia.sizeBytes ?? null
+    });
+    try {
+      const transcription = await new AudioTranscriptionService(getConfig(this.env)).transcribe({
+        media: inbound.audioMedia,
+        requestId
+      });
+      await this.messages.updateInboundTranscription({
+        providerMessageId: inbound.messageId,
+        content: transcription.text,
+        provider: transcription.provider,
+        model: transcription.model,
+        now: utcNow()
+      });
+      return {
+        fallback: undefined,
+        inbound: {
+          ...inbound,
+          text: transcription.text,
+          audioMediaStatus: 'resolved'
+        }
+      };
+    } catch (cause) {
+      const error = toAppError(cause);
+      await this.messages.updateTranscriptionStatus(inbound.messageId, 'failed');
+      await this.errorAlerts.notify(error, {
+        requestId,
+        provider: 'groq',
+        stage: 'audio_transcription',
+        model: getConfig(this.env).GROQ_TRANSCRIPTION_MODEL,
+        retryAfter:
+          typeof error.metadata?.retry_after === 'string' ? error.metadata.retry_after : undefined
+      });
+      return { fallback: await this.sendAudioFallback(inbound, persistent, requestId) };
+    }
+  }
+
+  private async sendAudioFallback(
+    inbound: NormalizedUazapiInboundMessage,
+    persistent: { contactId: string; conversationId: string; aiEnabled: boolean } | undefined,
+    requestId: string
+  ): Promise<unknown> {
+    const text =
+      'Não consegui entender esse áudio. Pode enviar novamente ou me mandar a mensagem por texto?';
+    const outbound = this.outboundSender ?? createUazapiProvider(this.env, requestId);
+    const result = await outbound.sendText({
+      number: inbound.phone,
+      text,
+      replyId: inbound.messageId
+    });
+    if (persistent) {
+      await this.messages.create({
+        conversationId: persistent.conversationId,
+        contactId: persistent.contactId,
+        providerMessageId: result.providerMessageId,
+        direction: 'outbound',
+        content: text,
+        aiGenerated: false,
+        now: utcNow()
+      });
+    }
+    return {
+      sent: true,
+      ai_validated: false,
+      reason: 'audio_transcription_failed',
+      chunks_sent: 1,
+      chunks_total: 1,
+      result
     };
   }
 }

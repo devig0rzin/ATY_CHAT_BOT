@@ -2,6 +2,7 @@ export interface ContactRecord {
   id: string;
   phone: string;
   name: string | null;
+  email: string | null;
   company: string | null;
   segment: string | null;
   ai_enabled: number;
@@ -18,7 +19,9 @@ export class ContactsRepository {
   }): Promise<ContactRecord | undefined> {
     if (!this.db) return undefined;
     const existing = await this.db
-      .prepare('SELECT id, phone, name, company, segment, ai_enabled FROM contacts WHERE phone = ?')
+      .prepare(
+        'SELECT id, phone, name, email, company, segment, ai_enabled FROM contacts WHERE phone = ?'
+      )
       .bind(input.phone)
       .first<ContactRecord>();
     if (existing) {
@@ -33,11 +36,19 @@ export class ContactsRepository {
     const name = input.name?.trim() || null;
     await this.db
       .prepare(
-        'INSERT INTO contacts (id, phone, name, created_at, updated_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?)'
+        'INSERT INTO contacts (id, phone, name, email, created_at, updated_at, last_seen_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
       )
-      .bind(id, input.phone, name, input.now, input.now, input.now)
+      .bind(id, input.phone, name, null, input.now, input.now, input.now)
       .run();
-    return { id, phone: input.phone, name, company: null, segment: null, ai_enabled: 1 };
+    return {
+      id,
+      phone: input.phone,
+      name,
+      email: null,
+      company: null,
+      segment: null,
+      ai_enabled: 1
+    };
   }
   async setAiEnabled(contactId: string, enabled: boolean, now: string): Promise<void> {
     if (!this.db) return;
@@ -48,18 +59,30 @@ export class ContactsRepository {
   }
   async mergeProfile(
     contactId: string,
-    patch: { name: string | null; company: string | null; segment: string | null },
+    patch: {
+      name: string | null;
+      email?: string | null;
+      company: string | null;
+      segment: string | null;
+    },
     now: string
   ): Promise<void> {
     if (!this.db) return;
     await this.db
       .prepare(
-        'UPDATE contacts SET name = COALESCE(?, name), company = COALESCE(?, company), segment = COALESCE(?, segment), updated_at = ? WHERE id = ?'
+        'UPDATE contacts SET name = COALESCE(?, name), email = COALESCE(?, email), company = COALESCE(?, company), segment = COALESCE(?, segment), updated_at = ? WHERE id = ?'
       )
-      .bind(nonEmpty(patch.name), nonEmpty(patch.company), nonEmpty(patch.segment), now, contactId)
+      .bind(
+        nonEmpty(patch.name),
+        nonEmpty(patch.email),
+        nonEmpty(patch.company),
+        nonEmpty(patch.segment),
+        now,
+        contactId
+      )
       .run();
   }
 }
-function nonEmpty(value: string | null): string | null {
+function nonEmpty(value: string | null | undefined): string | null {
   return value?.trim() || null;
 }

@@ -21,10 +21,12 @@ export function normalizeUazapiEvent(payload: unknown): NormalizedUazapiInboundM
   if (fromMe || wasSentByApi || isGroup) return undefined;
 
   const text = firstNonEmptyString([message.text, message.content]);
+  const messageType = firstNonEmptyString([message.type, message.messageType]);
+  const isAudio = isAudioMessage(messageType);
   const phone = normalizePhone(
     firstNonEmptyString([message.sender_pn, message.chatid, chat?.wa_chatid])
   );
-  if (!text || !phone) return undefined;
+  if ((!text && !isAudio) || !phone) return undefined;
 
   const messageId = firstNonEmptyString([message.messageid, message.id]);
   return {
@@ -33,11 +35,13 @@ export function normalizeUazapiEvent(payload: unknown): NormalizedUazapiInboundM
     messageId,
     phone,
     senderName: firstNonEmptyString([message.senderName, chat?.wa_contactName, chat?.name]),
-    text,
+    text: text ?? '',
+    isAudio,
+    audioMediaStatus: isAudio ? 'unconfirmed' : 'not_applicable',
     fromMe,
     wasSentByApi,
     isGroup,
-    messageType: firstNonEmptyString([message.type, message.messageType]),
+    messageType,
     timestamp: typeof message.messageTimestamp === 'number' ? message.messageTimestamp : undefined,
     instanceName: stringValue(payload.instanceName),
     owner: stringValue(payload.owner)
@@ -55,6 +59,7 @@ export function getUazapiAutoreplySkipReason(
   if (message.fromMe === true) return 'from_me';
   if (message.wasSentByApi === true) return 'sent_by_api';
   if (message.isGroup === true || chat?.wa_isGroup === true) return 'group_message';
+  if (isAudioMessage(firstNonEmptyString([message.type, message.messageType]))) return undefined;
   if (!firstNonEmptyString([message.text, message.content])) {
     return 'unsupported_or_empty_message';
   }
@@ -89,6 +94,10 @@ function firstNonEmptyString(values: unknown[]): string | undefined {
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
+}
+
+function isAudioMessage(messageType: string | undefined): boolean {
+  return ['audio', 'ptt', 'myaudio'].includes(messageType?.trim().toLowerCase() ?? '');
 }
 
 function normalizePhone(value: string | undefined): string | undefined {

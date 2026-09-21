@@ -22,6 +22,10 @@ export class MessagesRepository {
     providerMessageId?: string;
     direction: 'inbound' | 'outbound';
     messageType?: string;
+    sourceType?: 'text' | 'audio';
+    transcriptionProvider?: string;
+    transcriptionModel?: string;
+    transcriptionStatus?: string;
     content: string;
     aiGenerated?: boolean;
     now: string;
@@ -29,7 +33,10 @@ export class MessagesRepository {
     if (!this.db) return;
     await this.db
       .prepare(
-        'INSERT INTO messages (id, conversation_id, contact_id, provider, provider_message_id, direction, message_type, content, ai_generated, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        `INSERT INTO messages
+         (id, conversation_id, contact_id, provider, provider_message_id, direction, message_type, content,
+          ai_generated, created_at, source_type, transcription_provider, transcription_model, transcription_status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .bind(
         crypto.randomUUID(),
@@ -41,8 +48,40 @@ export class MessagesRepository {
         input.messageType ?? 'text',
         input.content,
         input.aiGenerated ? 1 : 0,
-        input.now
+        input.now,
+        input.sourceType ?? 'text',
+        input.transcriptionProvider ?? null,
+        input.transcriptionModel ?? null,
+        input.transcriptionStatus ?? null
       )
+      .run();
+  }
+  async updateInboundTranscription(input: {
+    providerMessageId?: string;
+    content: string;
+    provider: string;
+    model: string;
+    now: string;
+  }): Promise<void> {
+    if (!this.db || !input.providerMessageId) return;
+    await this.db
+      .prepare(
+        `UPDATE messages SET content = ?, transcription_provider = ?, transcription_model = ?,
+         transcription_status = 'completed' WHERE provider = ? AND provider_message_id = ? AND direction = 'inbound'`
+      )
+      .bind(input.content, input.provider, input.model, input.provider, input.providerMessageId)
+      .run();
+  }
+  async updateTranscriptionStatus(
+    providerMessageId: string | undefined,
+    status: string
+  ): Promise<void> {
+    if (!this.db || !providerMessageId) return;
+    await this.db
+      .prepare(
+        "UPDATE messages SET transcription_status = ? WHERE provider = ? AND provider_message_id = ? AND direction = 'inbound'"
+      )
+      .bind(status, 'uazapi', providerMessageId)
       .run();
   }
   async recent(conversationId: string, limit: number): Promise<StoredMessage[]> {

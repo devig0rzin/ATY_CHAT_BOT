@@ -11,6 +11,15 @@ export interface NormalizedUazapiInboundMessage {
   phone: string;
   senderName?: string;
   text: string;
+  isAudio: boolean;
+  audioMedia?: {
+    url?: string;
+    base64?: string;
+    mimeType?: string;
+    fileName?: string;
+    sizeBytes?: number;
+  };
+  audioMediaStatus?: 'not_applicable' | 'unconfirmed' | 'resolved';
   fromMe: boolean;
   wasSentByApi: boolean;
   isGroup: boolean;

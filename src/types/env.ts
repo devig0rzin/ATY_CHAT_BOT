@@ -7,6 +7,11 @@ export interface Env {
   GROQ_API_KEY?: string;
   GROQ_MODEL?: string;
   GROQ_BASE_URL?: string;
+  GROQ_TRANSCRIPTION_ENABLED?: string;
+  GROQ_TRANSCRIPTION_MODEL?: string;
+  GROQ_TRANSCRIPTION_LANGUAGE?: string;
+  GROQ_TRANSCRIPTION_TIMEOUT_MS?: string;
+  GROQ_TRANSCRIPTION_MAX_BYTES?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
   OPENAI_MAX_OUTPUT_TOKENS?: string;

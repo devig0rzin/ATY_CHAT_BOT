@@ -55,6 +55,8 @@ Groq uses `response_format.type=json_schema` with `strict=true`, the same `AIDec
 
 During free-tier development, the optional D1-backed coordination guard can be enabled with `AI_RATE_LIMIT_GUARD_ENABLED=true`. It serializes Groq calls globally, enforces `AI_MIN_REQUEST_INTERVAL_MS`, buffers inbound messages for `WHATSAPP_INBOUND_BUFFER_MS`, and performs at most `AI_RATE_LIMIT_MAX_RETRIES=1` retry after HTTP 429. `Retry-After` is respected when present. These values are intentionally conservative for development and can be reduced or disabled with a paid provider.
 
+Groq audio transcription uses the same `GROQ_API_KEY` and is independently configured through `GROQ_TRANSCRIPTION_ENABLED`, `GROQ_TRANSCRIPTION_MODEL`, `GROQ_TRANSCRIPTION_LANGUAGE`, `GROQ_TRANSCRIPTION_TIMEOUT_MS`, and `GROQ_TRANSCRIPTION_MAX_BYTES`. Speech-to-text rate limits are classified separately from chat-completion rate limits.
+
 Inbound messages remain persisted individually. The D1 coordination state only tracks the conversation batch cursor and locks; it does not change the `AIDecision` contract or message schema.
 
 Structured validation:

@@ -2,6 +2,8 @@
 
 UAZAPI outbound support is local-first and limited to text sending. The validated inbound payload is normalized from `EventType=messages` and can feed the local autoreply flow when explicitly enabled.
 
+Audio is detected from `message.type`/`messageType` values `audio`, `ptt`, or `myaudio`. The repository currently has no real inbound audio fixture and therefore does not assume a media URL, file, base64 field, or media object. Until a real UAZAPI audio payload confirms those fields, audio is persisted as audio metadata and receives the safe transcription fallback instead of guessing a download path.
+
 ## Local Configuration
 
 Configure `.env` locally only:
@@ -94,3 +96,17 @@ deduplication cache.
 - `UAZAPI_NETWORK_ERROR`: network request failed.
 - `UAZAPI_REQUEST_TIMEOUT`: request timed out.
 - `UAZAPI_INVALID_RESPONSE`: malformed JSON or unsupported response.
+
+## Audio transcription
+
+The Groq transcription adapter is configured with the existing `GROQ_API_KEY`:
+
+```text
+GROQ_TRANSCRIPTION_ENABLED=true
+GROQ_TRANSCRIPTION_MODEL=whisper-large-v3-turbo
+GROQ_TRANSCRIPTION_LANGUAGE=pt
+GROQ_TRANSCRIPTION_TIMEOUT_MS=30000
+GROQ_TRANSCRIPTION_MAX_BYTES=24000000
+```
+
+When a confirmed media resolver supplies an audio URL or base64 payload, the adapter downloads/decodes it in memory and sends multipart data to Groq Whisper. It never stores binary audio, signed URLs, tokens, transcripts, or API keys in logs or D1. Supported extensions are `ogg`, `mp3`, `mp4`, `mpeg`, `mpga`, `m4a`, `wav`, `webm`, and `flac`.

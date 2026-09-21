@@ -13,7 +13,16 @@ export const aiDecisionSchema = z.object({
     segment: z.string().nullable(),
     service_interest: z.string().nullable(),
     budget_status: z.string().nullable(),
-    urgency: z.string().nullable()
+    urgency: z.string().nullable(),
+    email: z.string().email().nullable().optional().default(null),
+    role: z.string().nullable().optional().default(null),
+    current_process: z.string().nullable().optional().default(null),
+    main_pain: z.string().nullable().optional().default(null),
+    desired_outcome: z.string().nullable().optional().default(null),
+    volume: z.string().nullable().optional().default(null),
+    meeting_interest: z.boolean().nullable().optional().default(null),
+    preferred_meeting_date: z.string().nullable().optional().default(null),
+    preferred_meeting_time: z.string().nullable().optional().default(null)
   }),
   memory_patch: z.object({
     summary: z.string().nullable(),
@@ -56,7 +65,16 @@ export const aiDecisionJsonSchema = {
         segment: nullableString,
         service_interest: nullableString,
         budget_status: nullableString,
-        urgency: nullableString
+        urgency: nullableString,
+        email: nullableString,
+        role: nullableString,
+        current_process: nullableString,
+        main_pain: nullableString,
+        desired_outcome: nullableString,
+        volume: nullableString,
+        meeting_interest: { type: ['boolean', 'null'] },
+        preferred_meeting_date: nullableString,
+        preferred_meeting_time: nullableString
       }
     },
     memory_patch: {
