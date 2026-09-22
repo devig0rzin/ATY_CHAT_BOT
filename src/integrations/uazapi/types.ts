@@ -8,6 +8,7 @@ export interface NormalizedUazapiInboundMessage {
   provider: 'uazapi';
   event: 'messages';
   messageId?: string;
+  mediaDownloadId?: string;
   phone: string;
   senderName?: string;
   text: string;

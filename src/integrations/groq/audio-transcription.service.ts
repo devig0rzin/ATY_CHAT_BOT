@@ -65,7 +65,18 @@ export class AudioTranscriptionService {
     });
 
     try {
+      const downloadStartedAt = Date.now();
+      logger.info('audio.file.download.started', {
+        provider: 'uazapi',
+        mime_type: media.mimeType
+      });
       const bytes = await loadMedia(media, this.config);
+      logger.info('audio.file.download.completed', {
+        provider: 'uazapi',
+        mime_type: media.mimeType,
+        audio_size_bytes: bytes.byteLength,
+        download_duration_ms: Date.now() - downloadStartedAt
+      });
       if (bytes.byteLength > this.config.GROQ_TRANSCRIPTION_MAX_BYTES) {
         throw new AppError({
           code: 'AUDIO_TOO_LARGE',

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { getConfig } from '../src/config/env';
 import { AudioTranscriptionService } from '../src/integrations/groq/audio-transcription.service';
+import { UazapiMediaResolver } from '../src/integrations/uazapi/media-resolver';
 import {
   normalizeUazapiEvent,
   getUazapiAutoreplySkipReason
@@ -15,6 +16,7 @@ const baseEnv = {
   GROQ_TRANSCRIPTION_LANGUAGE: 'pt',
   GROQ_TRANSCRIPTION_TIMEOUT_MS: '30',
   GROQ_TRANSCRIPTION_MAX_BYTES: '24',
+  UAZAPI_BASE_URL: 'https://uazapi.example.test',
   UAZAPI_TOKEN: 'test-uazapi-token',
   LOG_LEVEL: 'error',
   LOG_MESSAGE_CONTENT: 'false',
@@ -122,5 +124,90 @@ describe('UAZAPI audio normalization', () => {
     expect(normalized).toMatchObject({ isAudio: true, text: '', audioMediaStatus: 'unconfirmed' });
     expect(normalized?.audioMedia).toBeUndefined();
     expect(getUazapiAutoreplySkipReason(payload)).toBeUndefined();
+  });
+
+  it('reconhece o messageType AudioMessage real e preserva o messageid', () => {
+    const normalized = normalizeUazapiEvent({
+      EventType: 'messages',
+      message: {
+        fromMe: false,
+        isGroup: false,
+        wasSentByApi: false,
+        chatid: '5511999999999@s.whatsapp.net',
+        messageid: 'audio-real-1',
+        id: 'uazapi-audio-real-1',
+        messageType: 'AudioMessage',
+        content: { mimetype: 'audio/ogg; codecs=opus' }
+      }
+    });
+    expect(normalized).toMatchObject({
+      isAudio: true,
+      messageId: 'audio-real-1',
+      mediaDownloadId: 'uazapi-audio-real-1',
+      text: '',
+      audioMediaStatus: 'unconfirmed'
+    });
+  });
+
+  it('usa fileURL direto somente quando a UAZAPI o fornece explicitamente', () => {
+    const normalized = normalizeUazapiEvent({
+      EventType: 'messages',
+      message: {
+        fromMe: false,
+        isGroup: false,
+        wasSentByApi: false,
+        chatid: '5511999999999@s.whatsapp.net',
+        messageid: 'audio-url-1',
+        messageType: 'AudioMessage',
+        fileURL: 'https://cdn.example.test/voice.mp3',
+        content: { mimetype: 'audio/mpeg' }
+      }
+    });
+    expect(normalized?.audioMedia).toMatchObject({
+      url: 'https://cdn.example.test/voice.mp3',
+      mimeType: 'audio/mpeg'
+    });
+  });
+});
+
+describe('UazapiMediaResolver', () => {
+  it('resolve por messageid com mp3 e nunca solicita transcrição da UAZAPI', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.method).toBe('POST');
+      expect(init?.headers).toMatchObject({ token: 'test-uazapi-token' });
+      expect(JSON.parse(String(init?.body))).toEqual({
+        id: 'audio-real-1',
+        generate_mp3: true,
+        return_base64: false,
+        transcribe: false
+      });
+      return new Response(
+        JSON.stringify({ fileURL: 'https://cdn.example.test/voice.mp3', mimetype: 'audio/mpeg' }),
+        { status: 200 }
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await new UazapiMediaResolver(
+      getConfig(baseEnv),
+      'resolver-request'
+    ).resolveAudio('audio-real-1');
+
+    expect(result).toMatchObject({
+      url: 'https://cdn.example.test/voice.mp3',
+      mimeType: 'audio/mpeg',
+      fileName: 'voice.mp3'
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('classifica resposta sem fileURL como erro controlado', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(JSON.stringify({ mimetype: 'audio/mpeg' }), { status: 200 }))
+    );
+    await expect(
+      new UazapiMediaResolver(getConfig(baseEnv), 'resolver-invalid').resolveAudio('audio-real-1')
+    ).rejects.toMatchObject({ code: 'AUDIO_MEDIA_DOWNLOAD_ERROR' });
   });
 });

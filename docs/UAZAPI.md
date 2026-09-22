@@ -2,7 +2,7 @@
 
 UAZAPI outbound support is local-first and limited to text sending. The validated inbound payload is normalized from `EventType=messages` and can feed the local autoreply flow when explicitly enabled.
 
-Audio is detected from `message.type`/`messageType` values `audio`, `ptt`, or `myaudio`. The repository currently has no real inbound audio fixture and therefore does not assume a media URL, file, base64 field, or media object. Until a real UAZAPI audio payload confirms those fields, audio is persisted as audio metadata and receives the safe transcription fallback instead of guessing a download path.
+Audio is detected from `message.type`/`messageType` values `audio`, `ptt`, `myaudio`, `AudioMessage`, or `PttMessage`. Para mensagens sem `fileURL` direto, o resolver usa o identificador de download da mensagem e chama `POST /message/download` com `generate_mp3=true`, `return_base64=false` e `transcribe=false`. A URL retornada é temporária, usada somente em memória e nunca persistida ou registrada.
 
 ## Local Configuration
 
@@ -65,6 +65,7 @@ The adapter maps the real UAZAPI structure as follows:
 ```text
 EventType                         -> event
 message.messageid (or id)         -> messageId
+message.id (or messageid)         -> mediaDownloadId
 message.text (or content)         -> text
 message.sender_pn (or chatid)     -> phone
 message.senderName                -> senderName
@@ -72,6 +73,8 @@ message.fromMe                    -> fromMe
 message.wasSentByApi              -> wasSentByApi
 message.isGroup (or chat flag)    -> isGroup
 message.type (or messageType)     -> messageType
+message.fileURL                   -> audioMedia.url (when present)
+message.content.mimetype          -> audioMedia.mimeType (when present)
 message.messageTimestamp          -> timestamp
 instanceName                      -> instanceName
 owner                             -> owner
@@ -85,6 +88,9 @@ The marker for the captured structure is `REAL_UAZAPI_PAYLOAD_STRUCTURE_VALIDATE
 When D1 is configured, `message.messageid` is stored as `webhook_events.provider_event_id`
 for persistent deduplication. Without D1, the runtime does not create an in-memory global
 deduplication cache.
+
+The UAZAPI API uses the message `id` as the canonical `/message/download` identifier when
+it is available; the webhook's `messageid` remains the provider event/deduplication ID.
 
 ## Errors
 
@@ -109,4 +115,8 @@ GROQ_TRANSCRIPTION_TIMEOUT_MS=30000
 GROQ_TRANSCRIPTION_MAX_BYTES=24000000
 ```
 
-When a confirmed media resolver supplies an audio URL or base64 payload, the adapter downloads/decodes it in memory and sends multipart data to Groq Whisper. It never stores binary audio, signed URLs, tokens, transcripts, or API keys in logs or D1. Supported extensions are `ogg`, `mp3`, `mp4`, `mpeg`, `mpga`, `m4a`, `wav`, `webm`, and `flac`.
+The webhook first tries an explicit `message.fileURL`; otherwise it resolves the media through
+`POST /message/download` and prefers the generated MP3. The adapter then downloads/decodes it
+in memory and sends multipart data to Groq Whisper. It never stores binary audio, signed URLs,
+tokens, transcripts, or API keys in logs or D1. Supported extensions are `ogg`, `mp3`, `mp4`,
+`mpeg`, `mpga`, `m4a`, `wav`, `webm`, and `flac`.

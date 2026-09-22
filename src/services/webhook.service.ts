@@ -16,6 +16,7 @@ import { splitWhatsAppReply } from '../lib/whatsapp-reply';
 import { createAIProvider } from '../integrations/openai/client';
 import { createUazapiProvider } from '../integrations/uazapi/client';
 import { AudioTranscriptionService } from '../integrations/groq/audio-transcription.service';
+import { UazapiMediaResolver, maskMessageId } from '../integrations/uazapi/media-resolver';
 import {
   getUazapiAutoreplySkipReason,
   normalizeUazapiEvent
@@ -320,6 +321,12 @@ export class WebhookService {
       has_memory: Boolean(memory),
       recent_count: recent.length
     });
+    if (inbound.isAudio) {
+      logger.info('audio.coordinator.started', {
+        provider: config.AI_MODE,
+        masked_message_id: maskMessageId(inbound.messageId)
+      });
+    }
     const decision = await this.aiCoordinator.withGroqRateLimit(logger, () =>
       createAIProvider(this.env).generateReply({
         message: inbound.text,
@@ -451,6 +458,13 @@ export class WebhookService {
       chunks_total: chunks.length,
       partial: false
     });
+    if (inbound.isAudio) {
+      logger.info('audio.processing.completed', {
+        provider: 'uazapi',
+        masked_message_id: maskMessageId(inbound.messageId),
+        transcript_length: inbound.text.length
+      });
+    }
 
     return {
       sent: true,
@@ -550,17 +564,47 @@ export class WebhookService {
     requestId: string,
     persistent?: { contactId: string; conversationId: string; aiEnabled: boolean }
   ): Promise<{ inbound?: NormalizedUazapiInboundMessage; fallback: unknown }> {
-    logger.info('audio.received', {
+    logger.info('audio.inbound.detected', {
       provider: 'uazapi',
       message_type: inbound.messageType ?? null,
+      masked_message_id: maskMessageId(inbound.messageId),
       audio_media_status: inbound.audioMediaStatus ?? 'unconfirmed'
     });
-    if (!inbound.audioMedia) {
+    let audioMedia = inbound.audioMedia;
+    const mediaDownloadId = inbound.mediaDownloadId ?? inbound.messageId;
+    if (!audioMedia && mediaDownloadId) {
+      try {
+        audioMedia = await new UazapiMediaResolver(getConfig(this.env), requestId).resolveAudio(
+          mediaDownloadId
+        );
+      } catch (cause) {
+        const error = toAppError(cause);
+        logger.warn('audio.processing.skipped', {
+          provider: 'uazapi',
+          reason: 'media_resolution_failed',
+          masked_message_id: maskMessageId(inbound.messageId),
+          error_code: error.code
+        });
+        await this.messages.updateTranscriptionStatus(inbound.messageId, 'failed');
+        await this.errorAlerts.notify(error, {
+          requestId,
+          provider: 'uazapi',
+          stage: 'audio_media_resolution',
+          model: getConfig(this.env).GROQ_TRANSCRIPTION_MODEL
+        });
+        return { fallback: await this.sendAudioFallback(inbound, persistent, requestId) };
+      }
+    }
+    if (!audioMedia) {
       const error = new AppError({
         code: 'AUDIO_MEDIA_DOWNLOAD_ERROR',
         httpStatus: 502,
-        safeMessage: 'Audio media structure is not confirmed for this UAZAPI payload',
-        metadata: { reason: 'audio_media_structure_unconfirmed' }
+        safeMessage: 'Audio media message id is missing',
+        metadata: { reason: 'missing_message_id' }
+      });
+      logger.warn('audio.processing.skipped', {
+        provider: 'uazapi',
+        reason: 'missing_message_id'
       });
       await this.messages.updateTranscriptionStatus(inbound.messageId, 'unconfirmed');
       await this.errorAlerts.notify(error, {
@@ -569,21 +613,18 @@ export class WebhookService {
         stage: 'audio_transcription',
         model: getConfig(this.env).GROQ_TRANSCRIPTION_MODEL
       });
-      logger.warn('audio.media.unresolved', {
-        provider: 'uazapi',
-        reason: 'audio_media_structure_unconfirmed'
-      });
       return { fallback: await this.sendAudioFallback(inbound, persistent, requestId) };
     }
 
     logger.info('audio.media.resolved', {
       provider: 'uazapi',
-      mime_type: inbound.audioMedia.mimeType ?? null,
-      audio_size_bytes: inbound.audioMedia.sizeBytes ?? null
+      masked_message_id: maskMessageId(inbound.messageId),
+      mime_type: audioMedia.mimeType ?? null,
+      audio_size_bytes: audioMedia.sizeBytes ?? null
     });
     try {
       const transcription = await new AudioTranscriptionService(getConfig(this.env)).transcribe({
-        media: inbound.audioMedia,
+        media: audioMedia,
         requestId
       });
       await this.messages.updateInboundTranscription({
@@ -598,11 +639,18 @@ export class WebhookService {
         inbound: {
           ...inbound,
           text: transcription.text,
+          audioMedia,
           audioMediaStatus: 'resolved'
         }
       };
     } catch (cause) {
       const error = toAppError(cause);
+      logger.warn('audio.processing.skipped', {
+        provider: 'uazapi',
+        reason: 'transcription_failed',
+        masked_message_id: maskMessageId(inbound.messageId),
+        error_code: error.code
+      });
       await this.messages.updateTranscriptionStatus(inbound.messageId, 'failed');
       await this.errorAlerts.notify(error, {
         requestId,

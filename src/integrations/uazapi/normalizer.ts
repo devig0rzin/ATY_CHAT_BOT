@@ -29,15 +29,34 @@ export function normalizeUazapiEvent(payload: unknown): NormalizedUazapiInboundM
   if ((!text && !isAudio) || !phone) return undefined;
 
   const messageId = firstNonEmptyString([message.messageid, message.id]);
+  const mediaDownloadId = firstNonEmptyString([message.id, message.messageid]);
+  const directMediaUrl = firstNonEmptyString([message.fileURL, message.fileUrl]);
+  const content = asRecord(message.content);
+  const mediaMimeType = firstNonEmptyString([
+    message.mimetype,
+    message.mimeType,
+    content?.mimetype,
+    content?.mimeType
+  ]);
   return {
     provider: 'uazapi',
     event: 'messages',
     messageId,
+    mediaDownloadId,
     phone,
     senderName: firstNonEmptyString([message.senderName, chat?.wa_contactName, chat?.name]),
     text: text ?? '',
     isAudio,
-    audioMediaStatus: isAudio ? 'unconfirmed' : 'not_applicable',
+    audioMedia:
+      isAudio && directMediaUrl
+        ? {
+            url: directMediaUrl,
+            mimeType: mediaMimeType,
+            fileName: 'voice.mp3'
+          }
+        : undefined,
+    audioMediaStatus:
+      isAudio && directMediaUrl ? 'resolved' : isAudio ? 'unconfirmed' : 'not_applicable',
     fromMe,
     wasSentByApi,
     isGroup,
@@ -97,7 +116,12 @@ function stringValue(value: unknown): string | undefined {
 }
 
 function isAudioMessage(messageType: string | undefined): boolean {
-  return ['audio', 'ptt', 'myaudio'].includes(messageType?.trim().toLowerCase() ?? '');
+  const normalized =
+    messageType
+      ?.trim()
+      .toLowerCase()
+      .replace(/[\s_-]+/g, '') ?? '';
+  return ['audio', 'ptt', 'myaudio', 'audiomessage', 'pttmessage'].includes(normalized);
 }
 
 function normalizePhone(value: string | undefined): string | undefined {
