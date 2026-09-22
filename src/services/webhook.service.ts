@@ -236,7 +236,7 @@ export class WebhookService {
       return { sent: false, reason };
     }
 
-    if (inbound.isAudio) {
+    if (inbound.isAudio && !coordinated) {
       const prepared = await this.prepareAudioInbound(inbound, logger, requestId, persistent);
       if (!prepared.inbound) return prepared.fallback;
       inbound = prepared.inbound;
@@ -277,6 +277,23 @@ export class WebhookService {
         }
         logger.info('ai.batch.created', { provider: config.AI_MODE, batch_size: batch.length });
         const latest = batch[batch.length - 1];
+        if (
+          latest.source_type === 'audio' &&
+          (latest.transcription_status !== 'completed' || !latest.content.trim())
+        ) {
+          throw new AppError({
+            code: 'AUDIO_TRANSCRIPTION_PERSISTENCE_ERROR',
+            httpStatus: 500,
+            safeMessage: 'Buffered audio transcription is not ready'
+          });
+        }
+        if (latest.source_type === 'audio') {
+          logger.info('audio.transcription.reused', {
+            provider: 'groq',
+            masked_message_id: maskMessageId(latest.provider_message_id ?? undefined),
+            transcript_length: latest.content.length
+          });
+        }
         const latestInbound: NormalizedUazapiInboundMessage = {
           ...inbound,
           messageId: latest.provider_message_id ?? inbound.messageId,
@@ -570,6 +587,44 @@ export class WebhookService {
       masked_message_id: maskMessageId(inbound.messageId),
       audio_media_status: inbound.audioMediaStatus ?? 'unconfirmed'
     });
+    const storedTranscription = persistent
+      ? await this.messages.getInboundTranscription(inbound.messageId)
+      : undefined;
+    if (
+      storedTranscription?.transcription_status === 'completed' &&
+      storedTranscription.content.trim()
+    ) {
+      logger.info('audio.transcription.reused', {
+        provider: storedTranscription.transcription_provider ?? 'groq',
+        model: storedTranscription.transcription_model,
+        masked_message_id: maskMessageId(inbound.messageId),
+        transcript_length: storedTranscription.content.length
+      });
+      return {
+        fallback: undefined,
+        inbound: {
+          ...inbound,
+          text: storedTranscription.content,
+          audioMediaStatus: 'resolved'
+        }
+      };
+    }
+    if (storedTranscription?.transcription_status === 'processing') {
+      logger.warn('audio.processing.skipped', {
+        provider: 'uazapi',
+        reason: 'transcription_processing',
+        masked_message_id: maskMessageId(inbound.messageId)
+      });
+      return { fallback: { sent: false, reason: 'audio_transcription_processing' } };
+    }
+    if (storedTranscription?.transcription_status === 'failed') {
+      logger.warn('audio.processing.skipped', {
+        provider: 'uazapi',
+        reason: 'transcription_failed',
+        masked_message_id: maskMessageId(inbound.messageId)
+      });
+      return { fallback: await this.sendAudioFallback(inbound, persistent, requestId) };
+    }
     let audioMedia = inbound.audioMedia;
     const mediaDownloadId = inbound.mediaDownloadId ?? inbound.messageId;
     if (!audioMedia && mediaDownloadId) {
@@ -623,26 +678,23 @@ export class WebhookService {
       audio_size_bytes: audioMedia.sizeBytes ?? null
     });
     try {
-      const transcription = await new AudioTranscriptionService(getConfig(this.env)).transcribe({
+      await this.messages.updateTranscriptionStatus(inbound.messageId, 'processing');
+    } catch (cause) {
+      const error = toAppError(cause);
+      logger.error('audio.transcription.persist.failed', {
+        provider: 'uazapi',
+        masked_message_id: maskMessageId(inbound.messageId),
+        error_code: error.code
+      });
+      throw error;
+    }
+
+    let transcription: Awaited<ReturnType<AudioTranscriptionService['transcribe']>>;
+    try {
+      transcription = await new AudioTranscriptionService(getConfig(this.env)).transcribe({
         media: audioMedia,
         requestId
       });
-      await this.messages.updateInboundTranscription({
-        providerMessageId: inbound.messageId,
-        content: transcription.text,
-        provider: transcription.provider,
-        model: transcription.model,
-        now: utcNow()
-      });
-      return {
-        fallback: undefined,
-        inbound: {
-          ...inbound,
-          text: transcription.text,
-          audioMedia,
-          audioMediaStatus: 'resolved'
-        }
-      };
     } catch (cause) {
       const error = toAppError(cause);
       logger.warn('audio.processing.skipped', {
@@ -662,6 +714,48 @@ export class WebhookService {
       });
       return { fallback: await this.sendAudioFallback(inbound, persistent, requestId) };
     }
+
+    logger.info('audio.transcription.persist.started', {
+      provider: 'uazapi',
+      transcription_provider: transcription.provider,
+      model: transcription.model,
+      masked_message_id: maskMessageId(inbound.messageId)
+    });
+    try {
+      await this.messages.updateInboundTranscription({
+        providerMessageId: inbound.messageId,
+        content: transcription.text,
+        transcriptionProvider: transcription.provider,
+        transcriptionModel: transcription.model,
+        now: utcNow()
+      });
+    } catch (cause) {
+      const error = toAppError(cause);
+      logger.error('audio.transcription.persist.failed', {
+        provider: 'uazapi',
+        transcription_provider: transcription.provider,
+        model: transcription.model,
+        masked_message_id: maskMessageId(inbound.messageId),
+        error_code: error.code
+      });
+      throw error;
+    }
+    logger.info('audio.transcription.persist.completed', {
+      provider: 'uazapi',
+      transcription_provider: transcription.provider,
+      model: transcription.model,
+      masked_message_id: maskMessageId(inbound.messageId),
+      transcript_length: transcription.text.length
+    });
+    return {
+      fallback: undefined,
+      inbound: {
+        ...inbound,
+        text: transcription.text,
+        audioMedia,
+        audioMediaStatus: 'resolved'
+      }
+    };
   }
 
   private async sendAudioFallback(

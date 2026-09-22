@@ -102,6 +102,8 @@ export class AiCoordinator {
       id: string;
       provider_message_id: string | null;
       content: string;
+      source_type: string | null;
+      transcription_status: string | null;
       created_at: string;
     }>,
     now: string

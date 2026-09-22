@@ -56,7 +56,7 @@ export class AiCoordinationRepository {
     const messageId = state?.last_processed_message_id ?? '';
     const result = await this.db
       .prepare(
-        `SELECT id, provider_message_id, content, created_at
+        `SELECT id, provider_message_id, content, source_type, transcription_status, created_at
          FROM messages
          WHERE conversation_id = ?
            AND direction = 'inbound'
