@@ -15,6 +15,10 @@ interface GroqContext {
     current_intent: string | null;
   };
   recent?: Array<{ direction: string; content: string | null }>;
+  image?: {
+    url: string;
+    mimeType: string;
+  };
 }
 
 interface GroqCompletion {
@@ -47,14 +51,14 @@ export class GroqProvider implements AIProvider {
     const startedAt = Date.now();
     logger.info('ai.request.started', {
       provider: 'groq',
-      requested_model: this.config.GROQ_MODEL
+      requested_model: requestedModel(this.config, parsedContext)
     });
 
     try {
       const completion = await createCompletion(this.config, parsedContext);
       logger.info('ai.response.shape', {
         provider: 'groq',
-        requested_model: this.config.GROQ_MODEL,
+        requested_model: requestedModel(this.config, parsedContext),
         resolved_model: completion.model,
         finish_reason: completion.finishReason ?? null,
         content_present: Boolean(completion.content),
@@ -66,7 +70,7 @@ export class GroqProvider implements AIProvider {
       Object.assign(decision, { resolved_model: completion.model });
       logger.info('ai.request.completed', {
         provider: 'groq',
-        requested_model: this.config.GROQ_MODEL,
+        requested_model: requestedModel(this.config, parsedContext),
         resolved_model: completion.model,
         status: completion.status,
         duration_ms: Date.now() - startedAt,
@@ -87,7 +91,7 @@ export class GroqProvider implements AIProvider {
             });
       logger.error('ai.request.failed', {
         provider: 'groq',
-        requested_model: this.config.GROQ_MODEL,
+        requested_model: requestedModel(this.config, parsedContext),
         error_code: error.code,
         http_status: numberMetadata(error.metadata, 'http_status', 'status'),
         groq_error_type: stringMetadata(error.metadata, 'groq_error_type'),
@@ -101,6 +105,14 @@ export class GroqProvider implements AIProvider {
 }
 
 async function createCompletion(config: AppConfig, context: GroqContext): Promise<GroqCompletion> {
+  const model = requestedModel(config, context);
+  if (context.image && !config.GROQ_VISION_ENABLED) {
+    throw new AppError({
+      code: 'GROQ_VISION_DISABLED',
+      httpStatus: 503,
+      safeMessage: 'Groq image understanding is disabled'
+    });
+  }
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.AI_REQUEST_TIMEOUT_MS);
   try {
@@ -112,28 +124,43 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        model: config.GROQ_MODEL,
+        model,
         messages: [
           { role: 'system', content: buildSystemPrompt() },
-          { role: 'user', content: buildConversationInput(context) }
+          {
+            role: 'user',
+            content: context.image
+              ? [
+                  { type: 'text', text: buildConversationInput(context) },
+                  {
+                    type: 'image_url',
+                    image_url: { url: await loadImageAsDataUrl(context.image, config) }
+                  }
+                ]
+              : buildConversationInput(context)
+          }
         ],
         max_tokens: config.OPENAI_MAX_OUTPUT_TOKENS,
         temperature: config.AI_TEMPERATURE,
-        reasoning_effort: 'low',
         stream: false,
-        response_format: {
-          type: 'json_schema',
-          json_schema: {
-            name: 'aty_ai_decision',
-            strict: true,
-            schema: aiDecisionJsonSchema
-          }
-        }
+        ...(context.image
+          ? { response_format: { type: 'json_object' } }
+          : {
+              reasoning_effort: 'low',
+              response_format: {
+                type: 'json_schema',
+                json_schema: {
+                  name: 'aty_ai_decision',
+                  strict: true,
+                  schema: aiDecisionJsonSchema
+                }
+              }
+            })
       })
     });
 
     const metadata: Record<string, unknown> = {
-      model: config.GROQ_MODEL,
+      model,
       status: response.status,
       http_status: response.status,
       provider_request_id: maskProviderRequestId(
@@ -206,7 +233,7 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
         httpStatus: 502,
         safeMessage: 'Groq returned malformed JSON',
         cause,
-        metadata: { model: config.GROQ_MODEL, status: response.status }
+        metadata: { model, status: response.status }
       });
     }
 
@@ -216,7 +243,7 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
     const usage = payload?.usage;
     return {
       status: response.status,
-      model: typeof payload?.model === 'string' ? payload.model : config.GROQ_MODEL,
+      model: typeof payload?.model === 'string' ? payload.model : model,
       content,
       finishReason: typeof choice?.finish_reason === 'string' ? choice.finish_reason : undefined,
       usagePromptTokens: tokenCount(usage?.prompt_tokens),
@@ -234,7 +261,7 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
         httpStatus: 504,
         safeMessage: 'Groq request timed out',
         cause,
-        metadata: { model: config.GROQ_MODEL }
+        metadata: { model }
       });
     }
     throw new AppError({
@@ -242,11 +269,63 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
       httpStatus: 502,
       safeMessage: 'Groq network request failed',
       cause,
-      metadata: { model: config.GROQ_MODEL }
+      metadata: { model }
     });
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function requestedModel(config: AppConfig, context: GroqContext): string {
+  return context.image ? config.GROQ_VISION_MODEL : config.GROQ_MODEL;
+}
+
+async function loadImageAsDataUrl(
+  image: NonNullable<GroqContext['image']>,
+  config: AppConfig
+): Promise<string> {
+  const mimeType = image.mimeType.trim().toLowerCase();
+  if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(mimeType)) {
+    throw new AppError({
+      code: 'IMAGE_UNSUPPORTED_FORMAT',
+      httpStatus: 415,
+      safeMessage: 'Image format is not supported',
+      metadata: { mime_type: mimeType }
+    });
+  }
+  let response: Response;
+  try {
+    response = await fetch(image.url, {
+      headers: config.UAZAPI_TOKEN ? { token: config.UAZAPI_TOKEN } : undefined
+    });
+  } catch (cause) {
+    throw new AppError({
+      code: 'IMAGE_MEDIA_DOWNLOAD_ERROR',
+      httpStatus: 502,
+      safeMessage: 'Image media download failed',
+      cause
+    });
+  }
+  if (!response.ok) {
+    throw new AppError({
+      code: 'IMAGE_MEDIA_DOWNLOAD_ERROR',
+      httpStatus: 502,
+      safeMessage: 'Image media download failed',
+      metadata: { status: response.status }
+    });
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.byteLength === 0 || bytes.byteLength > config.GROQ_VISION_MAX_BYTES) {
+    throw new AppError({
+      code: 'IMAGE_TOO_LARGE',
+      httpStatus: 413,
+      safeMessage: 'Image file is too large',
+      metadata: { size_bytes: bytes.byteLength }
+    });
+  }
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return `data:${mimeType};base64,${btoa(binary)}`;
 }
 
 function parseDecision(completion: GroqCompletion): AIDecision {

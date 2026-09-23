@@ -33,7 +33,7 @@ export class MessagesRepository {
     providerMessageId?: string;
     direction: 'inbound' | 'outbound';
     messageType?: string;
-    sourceType?: 'text' | 'audio';
+    sourceType?: 'text' | 'audio' | 'image';
     transcriptionProvider?: string;
     transcriptionModel?: string;
     transcriptionStatus?: string;

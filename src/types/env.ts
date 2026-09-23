@@ -12,6 +12,9 @@ export interface Env {
   GROQ_TRANSCRIPTION_LANGUAGE?: string;
   GROQ_TRANSCRIPTION_TIMEOUT_MS?: string;
   GROQ_TRANSCRIPTION_MAX_BYTES?: string;
+  GROQ_VISION_ENABLED?: string;
+  GROQ_VISION_MODEL?: string;
+  GROQ_VISION_MAX_BYTES?: string;
   OPENAI_API_KEY?: string;
   OPENAI_MODEL?: string;
   OPENAI_MAX_OUTPUT_TOKENS?: string;

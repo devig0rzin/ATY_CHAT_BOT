@@ -174,6 +174,33 @@ describe('UAZAPI audio normalization', () => {
     expect(getUazapiAutoreplySkipReason(payload)).toBeUndefined();
   });
 
+  it('reconhece media como imagem quando o MIME da UAZAPI Ã© image/*', () => {
+    const payload = {
+      EventType: 'messages',
+      message: {
+        fromMe: false,
+        isGroup: false,
+        wasSentByApi: false,
+        chatid: '5511999999999@s.whatsapp.net',
+        messageid: 'uazapi-media-image-1',
+        id: 'uazapi-media-image-download-1',
+        type: 'media',
+        messageType: 'ImageMessage',
+        content: { mimetype: 'image/jpeg' }
+      }
+    };
+
+    expect(normalizeUazapiEvent(payload)).toMatchObject({
+      isAudio: false,
+      isImage: true,
+      messageId: 'uazapi-media-image-1',
+      mediaDownloadId: 'uazapi-media-image-download-1',
+      text: '',
+      imageMediaStatus: 'unconfirmed'
+    });
+    expect(getUazapiAutoreplySkipReason(payload)).toBeUndefined();
+  });
+
   it('usa fileURL direto somente quando a UAZAPI o fornece explicitamente', () => {
     const normalized = normalizeUazapiEvent({
       EventType: 'messages',

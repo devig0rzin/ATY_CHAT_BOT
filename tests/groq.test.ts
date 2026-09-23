@@ -97,6 +97,53 @@ describe('GroqProvider', () => {
     expect(provider).toBeInstanceOf(GroqProvider);
   });
 
+  it('usa o modelo de visÃ£o e uma imagem em base64 sem alterar o modelo de texto', async () => {
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'https://media.example.test/image.jpg') {
+        expect(init?.headers).toMatchObject({ token: 'uazapi-secret' });
+        return new Response(new Uint8Array([255, 216, 255]), { status: 200 });
+      }
+      if (url.endsWith('/chat/completions')) {
+        return new Response(
+          JSON.stringify({
+            model: 'qwen/qwen3.8-27b',
+            choices: [
+              { message: { content: JSON.stringify(validDecision) }, finish_reason: 'stop' }
+            ]
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+
+    await new GroqProvider(
+      config({
+        GROQ_VISION_ENABLED: 'true',
+        GROQ_VISION_MODEL: 'qwen/qwen3.8-27b',
+        GROQ_VISION_MAX_BYTES: '20000000',
+        UAZAPI_TOKEN: 'uazapi-secret'
+      })
+    ).generateReply({
+      requestId: 'groq-vision-request',
+      message: '[Imagem recebida]',
+      image: { url: 'https://media.example.test/image.jpg', mimeType: 'image/jpeg' }
+    });
+
+    const [, init] = fetch.mock.calls[1] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe('qwen/qwen3.8-27b');
+    expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(body.messages[1].content).toEqual([
+      expect.objectContaining({ type: 'text' }),
+      expect.objectContaining({
+        type: 'image_url',
+        image_url: { url: 'data:image/jpeg;base64,/9j/' }
+      })
+    ]);
+  });
+
   it.each([
     [400, 'GROQ_BAD_REQUEST'],
     [401, 'GROQ_AUTH_ERROR'],

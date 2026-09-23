@@ -311,6 +311,7 @@ function normalizedAudio(): NormalizedUazapiInboundMessage {
     phone: '5511999999999',
     text: '',
     isAudio: true,
+    isImage: false,
     audioMediaStatus: 'unconfirmed',
     fromMe: false,
     wasSentByApi: false,

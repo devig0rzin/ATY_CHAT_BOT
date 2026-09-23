@@ -30,10 +30,11 @@ export function normalizeUazapiEvent(payload: unknown): NormalizedUazapiInboundM
     content?.mimeType
   ]);
   const isAudio = isAudioMessage(messageType, mediaMimeType);
+  const isImage = isImageMessage(messageType, mediaMimeType);
   const phone = normalizePhone(
     firstNonEmptyString([message.sender_pn, message.chatid, chat?.wa_chatid])
   );
-  if ((!text && !isAudio) || !phone) return undefined;
+  if ((!text && !isAudio && !isImage) || !phone) return undefined;
 
   const messageId = firstNonEmptyString([message.messageid, message.id]);
   const mediaDownloadId = firstNonEmptyString([message.id, message.messageid]);
@@ -47,6 +48,7 @@ export function normalizeUazapiEvent(payload: unknown): NormalizedUazapiInboundM
     senderName: firstNonEmptyString([message.senderName, chat?.wa_contactName, chat?.name]),
     text: text ?? '',
     isAudio,
+    isImage,
     audioMedia:
       isAudio && directMediaUrl
         ? {
@@ -57,6 +59,15 @@ export function normalizeUazapiEvent(payload: unknown): NormalizedUazapiInboundM
         : undefined,
     audioMediaStatus:
       isAudio && directMediaUrl ? 'resolved' : isAudio ? 'unconfirmed' : 'not_applicable',
+    imageMedia:
+      isImage && directMediaUrl
+        ? {
+            url: directMediaUrl,
+            mimeType: mediaMimeType
+          }
+        : undefined,
+    imageMediaStatus:
+      isImage && directMediaUrl ? 'resolved' : isImage ? 'unconfirmed' : 'not_applicable',
     fromMe,
     wasSentByApi,
     isGroup,
@@ -86,6 +97,9 @@ export function getUazapiAutoreplySkipReason(
     content?.mimeType
   ]);
   if (isAudioMessage(firstNonEmptyString([message.type, message.messageType]), mediaMimeType)) {
+    return undefined;
+  }
+  if (isImageMessage(firstNonEmptyString([message.type, message.messageType]), mediaMimeType)) {
     return undefined;
   }
   if (!firstNonEmptyString([message.text, message.content])) {
@@ -133,6 +147,18 @@ function isAudioMessage(messageType: string | undefined, mimeType?: string): boo
   return (
     ['audio', 'ptt', 'myaudio', 'audiomessage', 'pttmessage'].includes(normalized) ||
     (normalized === 'media' && mimeType?.trim().toLowerCase().startsWith('audio/') === true)
+  );
+}
+
+function isImageMessage(messageType: string | undefined, mimeType?: string): boolean {
+  const normalized =
+    messageType
+      ?.trim()
+      .toLowerCase()
+      .replace(/[\s_-]+/g, '') ?? '';
+  return (
+    ['image', 'imagemessage'].includes(normalized) ||
+    (normalized === 'media' && mimeType?.trim().toLowerCase().startsWith('image/') === true)
   );
 }
 

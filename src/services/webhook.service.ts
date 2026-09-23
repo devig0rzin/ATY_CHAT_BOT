@@ -241,6 +241,11 @@ export class WebhookService {
       if (!prepared.inbound) return prepared.fallback;
       inbound = prepared.inbound;
     }
+    if (inbound.isImage && !coordinated) {
+      const prepared = await this.prepareImageInbound(inbound, logger, requestId, persistent);
+      if (!prepared.inbound) return prepared.fallback;
+      inbound = prepared.inbound;
+    }
 
     if (config.APP_ENV === 'production' && config.AI_MODE === 'mock') {
       logger.error('configuration.invalid', {
@@ -261,6 +266,7 @@ export class WebhookService {
       !coordinated &&
       persistent &&
       inbound &&
+      !inbound.isImage &&
       this.aiCoordinator.configured &&
       config.WHATSAPP_INBOUND_BUFFER_MS > 0
     ) {
@@ -349,7 +355,10 @@ export class WebhookService {
         message: inbound.text,
         requestId,
         memory,
-        recent
+        recent,
+        ...(inbound.imageMedia?.url && inbound.imageMedia.mimeType
+          ? { image: { url: inbound.imageMedia.url, mimeType: inbound.imageMedia.mimeType } }
+          : {})
       })
     );
     this.decisionObserver?.(decision);
@@ -563,7 +572,7 @@ export class WebhookService {
       direction: 'inbound',
       messageType: inbound.messageType,
       content: inbound.text,
-      sourceType: inbound.isAudio ? 'audio' : 'text',
+      sourceType: inbound.isAudio ? 'audio' : inbound.isImage ? 'image' : 'text',
       transcriptionStatus: inbound.isAudio ? 'pending' : undefined,
       now
     });
@@ -758,6 +767,67 @@ export class WebhookService {
     };
   }
 
+  private async prepareImageInbound(
+    inbound: NormalizedUazapiInboundMessage,
+    logger: ReturnType<typeof createLogger>,
+    requestId: string,
+    persistent?: { contactId: string; conversationId: string; aiEnabled: boolean }
+  ): Promise<{ inbound?: NormalizedUazapiInboundMessage; fallback: unknown }> {
+    logger.info('image.inbound.detected', {
+      provider: 'uazapi',
+      message_type: inbound.messageType ?? null,
+      masked_message_id: maskMessageId(inbound.messageId),
+      image_media_status: inbound.imageMediaStatus ?? 'unconfirmed'
+    });
+    let imageMedia = inbound.imageMedia;
+    const mediaDownloadId = inbound.mediaDownloadId ?? inbound.messageId;
+    if (!imageMedia && mediaDownloadId) {
+      try {
+        imageMedia = await new UazapiMediaResolver(getConfig(this.env), requestId).resolveImage(
+          mediaDownloadId
+        );
+      } catch (cause) {
+        const error = toAppError(cause);
+        logger.warn('image.processing.skipped', {
+          provider: 'uazapi',
+          reason: 'media_resolution_failed',
+          masked_message_id: maskMessageId(inbound.messageId),
+          error_code: error.code
+        });
+        await this.errorAlerts.notify(error, {
+          requestId,
+          provider: 'groq',
+          stage: 'image_media_resolution',
+          model: getConfig(this.env).GROQ_VISION_MODEL
+        });
+        return { fallback: await this.sendImageFallback(inbound, persistent) };
+      }
+    }
+    if (!imageMedia) {
+      const error = new AppError({
+        code: 'IMAGE_MEDIA_DOWNLOAD_ERROR',
+        httpStatus: 502,
+        safeMessage: 'Image media message id is missing'
+      });
+      await this.errorAlerts.notify(error, {
+        requestId,
+        provider: 'groq',
+        stage: 'image_media_resolution',
+        model: getConfig(this.env).GROQ_VISION_MODEL
+      });
+      return { fallback: await this.sendImageFallback(inbound, persistent) };
+    }
+    return {
+      fallback: undefined,
+      inbound: {
+        ...inbound,
+        text: inbound.text || '[Imagem recebida]',
+        imageMedia,
+        imageMediaStatus: 'resolved'
+      }
+    };
+  }
+
   private async sendAudioFallback(
     inbound: NormalizedUazapiInboundMessage,
     persistent: { contactId: string; conversationId: string; aiEnabled: boolean } | undefined,
@@ -790,6 +860,32 @@ export class WebhookService {
       chunks_total: 1,
       result
     };
+  }
+
+  private async sendImageFallback(
+    inbound: NormalizedUazapiInboundMessage,
+    persistent: { contactId: string; conversationId: string; aiEnabled: boolean } | undefined
+  ): Promise<unknown> {
+    const text =
+      'NÃ£o consegui analisar essa imagem. Pode enviar novamente ou me explicar por texto?';
+    const outbound = this.outboundSender ?? createUazapiProvider(this.env, crypto.randomUUID());
+    const result = await outbound.sendText({
+      number: inbound.phone,
+      text,
+      replyId: inbound.messageId
+    });
+    if (persistent) {
+      await this.messages.create({
+        conversationId: persistent.conversationId,
+        contactId: persistent.contactId,
+        providerMessageId: result.providerMessageId,
+        direction: 'outbound',
+        content: text,
+        aiGenerated: false,
+        now: utcNow()
+      });
+    }
+    return { sent: true, ai_validated: false, reason: 'image_processing_failed' };
   }
 }
 

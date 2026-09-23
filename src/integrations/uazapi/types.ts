@@ -13,6 +13,7 @@ export interface NormalizedUazapiInboundMessage {
   senderName?: string;
   text: string;
   isAudio: boolean;
+  isImage: boolean;
   audioMedia?: {
     url?: string;
     base64?: string;
@@ -21,6 +22,11 @@ export interface NormalizedUazapiInboundMessage {
     sizeBytes?: number;
   };
   audioMediaStatus?: 'not_applicable' | 'unconfirmed' | 'resolved';
+  imageMedia?: {
+    url?: string;
+    mimeType?: string;
+  };
+  imageMediaStatus?: 'not_applicable' | 'unconfirmed' | 'resolved';
   fromMe: boolean;
   wasSentByApi: boolean;
   isGroup: boolean;
