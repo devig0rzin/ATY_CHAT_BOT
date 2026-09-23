@@ -291,13 +291,13 @@ function audioPayload() {
     message: {
       id: 'uazapi-audio-1',
       messageid: 'provider-audio-1',
-      messageType: 'AudioMessage',
+      type: 'media',
       chatid: '5511999999999@s.whatsapp.net',
       sender_pn: '5511999999999',
       fromMe: false,
       wasSentByApi: false,
       isGroup: false,
-      content: {}
+      content: { mimetype: 'audio/ogg; codecs=opus' }
     }
   };
 }
@@ -315,7 +315,7 @@ function normalizedAudio(): NormalizedUazapiInboundMessage {
     fromMe: false,
     wasSentByApi: false,
     isGroup: false,
-    messageType: 'AudioMessage'
+    messageType: 'media'
   };
 }
 

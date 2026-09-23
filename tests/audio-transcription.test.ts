@@ -149,6 +149,31 @@ describe('UAZAPI audio normalization', () => {
     });
   });
 
+  it('reconhece media como áudio quando o MIME da UAZAPI é audio/*', () => {
+    const payload = {
+      EventType: 'messages',
+      message: {
+        fromMe: false,
+        isGroup: false,
+        wasSentByApi: false,
+        chatid: '5511999999999@s.whatsapp.net',
+        messageid: 'uazapi-media-audio-1',
+        id: 'uazapi-media-audio-download-1',
+        type: 'media',
+        content: { mimetype: 'audio/ogg; codecs=opus' }
+      }
+    };
+
+    expect(normalizeUazapiEvent(payload)).toMatchObject({
+      isAudio: true,
+      messageId: 'uazapi-media-audio-1',
+      mediaDownloadId: 'uazapi-media-audio-download-1',
+      text: '',
+      audioMediaStatus: 'unconfirmed'
+    });
+    expect(getUazapiAutoreplySkipReason(payload)).toBeUndefined();
+  });
+
   it('usa fileURL direto somente quando a UAZAPI o fornece explicitamente', () => {
     const normalized = normalizeUazapiEvent({
       EventType: 'messages',

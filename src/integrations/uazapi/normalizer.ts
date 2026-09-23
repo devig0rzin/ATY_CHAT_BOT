@@ -22,7 +22,14 @@ export function normalizeUazapiEvent(payload: unknown): NormalizedUazapiInboundM
 
   const text = firstNonEmptyString([message.text, message.content]);
   const messageType = firstNonEmptyString([message.type, message.messageType]);
-  const isAudio = isAudioMessage(messageType);
+  const content = asRecord(message.content);
+  const mediaMimeType = firstNonEmptyString([
+    message.mimetype,
+    message.mimeType,
+    content?.mimetype,
+    content?.mimeType
+  ]);
+  const isAudio = isAudioMessage(messageType, mediaMimeType);
   const phone = normalizePhone(
     firstNonEmptyString([message.sender_pn, message.chatid, chat?.wa_chatid])
   );
@@ -31,13 +38,6 @@ export function normalizeUazapiEvent(payload: unknown): NormalizedUazapiInboundM
   const messageId = firstNonEmptyString([message.messageid, message.id]);
   const mediaDownloadId = firstNonEmptyString([message.id, message.messageid]);
   const directMediaUrl = firstNonEmptyString([message.fileURL, message.fileUrl]);
-  const content = asRecord(message.content);
-  const mediaMimeType = firstNonEmptyString([
-    message.mimetype,
-    message.mimeType,
-    content?.mimetype,
-    content?.mimeType
-  ]);
   return {
     provider: 'uazapi',
     event: 'messages',
@@ -78,7 +78,16 @@ export function getUazapiAutoreplySkipReason(
   if (message.fromMe === true) return 'from_me';
   if (message.wasSentByApi === true) return 'sent_by_api';
   if (message.isGroup === true || chat?.wa_isGroup === true) return 'group_message';
-  if (isAudioMessage(firstNonEmptyString([message.type, message.messageType]))) return undefined;
+  const content = asRecord(message.content);
+  const mediaMimeType = firstNonEmptyString([
+    message.mimetype,
+    message.mimeType,
+    content?.mimetype,
+    content?.mimeType
+  ]);
+  if (isAudioMessage(firstNonEmptyString([message.type, message.messageType]), mediaMimeType)) {
+    return undefined;
+  }
   if (!firstNonEmptyString([message.text, message.content])) {
     return 'unsupported_or_empty_message';
   }
@@ -115,13 +124,16 @@ function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function isAudioMessage(messageType: string | undefined): boolean {
+function isAudioMessage(messageType: string | undefined, mimeType?: string): boolean {
   const normalized =
     messageType
       ?.trim()
       .toLowerCase()
       .replace(/[\s_-]+/g, '') ?? '';
-  return ['audio', 'ptt', 'myaudio', 'audiomessage', 'pttmessage'].includes(normalized);
+  return (
+    ['audio', 'ptt', 'myaudio', 'audiomessage', 'pttmessage'].includes(normalized) ||
+    (normalized === 'media' && mimeType?.trim().toLowerCase().startsWith('audio/') === true)
+  );
 }
 
 function normalizePhone(value: string | undefined): string | undefined {
