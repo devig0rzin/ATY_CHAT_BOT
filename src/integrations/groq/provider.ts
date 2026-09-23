@@ -116,6 +116,7 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), config.AI_REQUEST_TIMEOUT_MS);
   try {
+    const conversationInput = buildConversationInput(context);
     const response = await fetch(`${config.GROQ_BASE_URL.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
       signal: controller.signal,
@@ -133,11 +134,15 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
               ? [
                   { type: 'text', text: buildConversationInput(context) },
                   {
+                    type: 'text',
+                    text: 'Return exactly one valid JSON object that follows the requested response contract.'
+                  },
+                  {
                     type: 'image_url',
                     image_url: { url: context.image.dataUrl }
                   }
                 ]
-              : buildConversationInput(context)
+              : conversationInput
           }
         ],
         max_tokens: config.OPENAI_MAX_OUTPUT_TOKENS,

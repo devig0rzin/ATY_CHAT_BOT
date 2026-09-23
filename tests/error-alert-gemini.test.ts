@@ -92,6 +92,22 @@ describe('ErrorAlertService', () => {
     expect(message).not.toContain('5511999999999');
   });
 
+  it('distingue o HTTP upstream do HTTP interno do Worker', async () => {
+    const sendText = vi.fn().mockResolvedValue({ status: 200, provider: 'uazapi' as const });
+    await new ErrorAlertService(config(), { sendText }).notify(
+      new AppError({
+        code: 'GROQ_BAD_REQUEST',
+        safeMessage: 'rejected',
+        httpStatus: 502,
+        metadata: { http_status: 400 }
+      }),
+      { requestId: 'upstream-status', httpStatus: 502, provider: 'groq', stage: 'ai' }
+    );
+    const message = sendText.mock.calls[0][0].text as string;
+    expect(message).toContain('Upstream HTTP: 400');
+    expect(message).toContain('Worker HTTP: 502');
+  });
+
   it('não permite configuração com outro número', () => {
     expect(() => config({ TEST_ERROR_ALERT_NUMBER: '5511999999999' })).toThrow();
   });

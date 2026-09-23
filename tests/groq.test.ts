@@ -131,8 +131,12 @@ describe('GroqProvider', () => {
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe('qwen/qwen3.8-27b');
     expect(body.response_format).toEqual({ type: 'json_object' });
+    expect(body.messages[1].content).toContainEqual(
+      expect.objectContaining({ type: 'text', text: expect.stringMatching(/json/i) })
+    );
     expect(body.messages[1].content).toEqual([
       expect.objectContaining({ type: 'text' }),
+      expect.objectContaining({ type: 'text', text: expect.stringMatching(/json/i) }),
       expect.objectContaining({
         type: 'image_url',
         image_url: { url: 'data:image/jpeg;base64,/9j/' }

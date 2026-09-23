@@ -119,7 +119,8 @@ function formatAlert(
   metadata: Record<string, unknown> | undefined,
   context: ErrorAlertContext
 ): string {
-  const status = context.httpStatus ?? numberValue(metadata?.status);
+  const upstreamStatus = numberValue(metadata?.http_status) ?? numberValue(metadata?.status);
+  const workerStatus = context.httpStatus;
   const request = maskId(context.requestId);
   const event = maskId(context.providerEventId);
   return [
@@ -127,7 +128,8 @@ function formatAlert(
     field('Provider', context.provider),
     field('Stage', context.stage),
     field('Error', code),
-    field('HTTP', status),
+    field('Upstream HTTP', upstreamStatus),
+    field('Worker HTTP', workerStatus),
     field(
       'Model',
       context.model ?? stringValue(metadata?.model) ?? stringValue(metadata?.resolved_model)
