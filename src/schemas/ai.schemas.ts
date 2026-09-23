@@ -58,7 +58,23 @@ export const aiDecisionJsonSchema = {
     lead_patch: {
       type: 'object',
       additionalProperties: false,
-      required: ['name', 'company', 'segment', 'service_interest', 'budget_status', 'urgency'],
+      required: [
+        'name',
+        'company',
+        'segment',
+        'service_interest',
+        'budget_status',
+        'urgency',
+        'email',
+        'role',
+        'current_process',
+        'main_pain',
+        'desired_outcome',
+        'volume',
+        'meeting_interest',
+        'preferred_meeting_date',
+        'preferred_meeting_time'
+      ],
       properties: {
         name: nullableString,
         company: nullableString,

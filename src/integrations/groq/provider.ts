@@ -89,6 +89,10 @@ export class GroqProvider implements AIProvider {
         provider: 'groq',
         requested_model: this.config.GROQ_MODEL,
         error_code: error.code,
+        http_status: numberMetadata(error.metadata, 'http_status', 'status'),
+        groq_error_type: stringMetadata(error.metadata, 'groq_error_type'),
+        groq_error_code: stringMetadata(error.metadata, 'groq_error_code'),
+        provider_request_id: stringMetadata(error.metadata, 'provider_request_id'),
         duration_ms: Date.now() - startedAt
       });
       throw error;
@@ -128,9 +132,13 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
       })
     });
 
-    const metadata = {
+    const metadata: Record<string, unknown> = {
       model: config.GROQ_MODEL,
       status: response.status,
+      http_status: response.status,
+      provider_request_id: maskProviderRequestId(
+        response.headers.get('x-request-id') ?? response.headers.get('request-id')
+      ),
       retry_after: response.headers.get('retry-after') ?? undefined,
       limit_requests: response.headers.get('x-ratelimit-limit-requests') ?? undefined,
       remaining_requests: response.headers.get('x-ratelimit-remaining-requests') ?? undefined,
@@ -139,6 +147,7 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
       remaining_tokens: response.headers.get('x-ratelimit-remaining-tokens') ?? undefined,
       reset_tokens: response.headers.get('x-ratelimit-reset-tokens') ?? undefined
     };
+    if (!response.ok) Object.assign(metadata, await readGroqErrorMetadata(response));
     if (response.status === 429) {
       throw new AppError({
         code: 'GROQ_RATE_LIMIT',
@@ -152,15 +161,39 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
         code: 'GROQ_UPSTREAM_ERROR',
         httpStatus: 502,
         safeMessage: 'Groq upstream error',
-        metadata: { model: config.GROQ_MODEL, status: response.status }
+        metadata
+      });
+    }
+    if (response.status === 401 || response.status === 403) {
+      throw new AppError({
+        code: 'GROQ_AUTH_ERROR',
+        httpStatus: 502,
+        safeMessage: 'Groq authentication or permission failed',
+        metadata
+      });
+    }
+    if (response.status === 404) {
+      throw new AppError({
+        code: 'GROQ_MODEL_OR_ENDPOINT_ERROR',
+        httpStatus: 502,
+        safeMessage: 'Groq model or endpoint was not found',
+        metadata
+      });
+    }
+    if (response.status === 400 || response.status === 422) {
+      throw new AppError({
+        code: 'GROQ_BAD_REQUEST',
+        httpStatus: 502,
+        safeMessage: 'Groq rejected the request',
+        metadata
       });
     }
     if (!response.ok) {
       throw new AppError({
-        code: 'GROQ_INVALID_RESPONSE',
+        code: 'GROQ_BAD_REQUEST',
         httpStatus: 502,
-        safeMessage: 'Groq request failed',
-        metadata: { model: config.GROQ_MODEL, status: response.status }
+        safeMessage: 'Groq rejected the request',
+        metadata
       });
     }
 
@@ -189,9 +222,9 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
       usagePromptTokens: tokenCount(usage?.prompt_tokens),
       usageCompletionTokens: tokenCount(usage?.completion_tokens),
       usageTotalTokens: tokenCount(usage?.total_tokens),
-      retryAfter: metadata.retry_after,
-      remainingRequests: metadata.remaining_requests,
-      remainingTokens: metadata.remaining_tokens
+      retryAfter: stringMetadata(metadata, 'retry_after'),
+      remainingRequests: stringMetadata(metadata, 'remaining_requests'),
+      remainingTokens: stringMetadata(metadata, 'remaining_tokens')
     };
   } catch (cause) {
     if (cause instanceof AppError) throw cause;
@@ -297,4 +330,50 @@ function safeArray(value: string | null): string[] {
 
 function tokenCount(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+async function readGroqErrorMetadata(response: Response): Promise<Record<string, unknown>> {
+  try {
+    const payload = (await response.clone().json()) as unknown;
+    if (!payload || typeof payload !== 'object') return {};
+    const error = (payload as Record<string, unknown>).error;
+    if (!error || typeof error !== 'object') return {};
+    const record = error as Record<string, unknown>;
+    return {
+      groq_error_type: safeDiagnosticValue(record.type),
+      groq_error_code: safeDiagnosticValue(record.code)
+    };
+  } catch {
+    return {};
+  }
+}
+
+function safeDiagnosticValue(value: unknown): string | undefined {
+  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
+  const normalized = String(value).trim();
+  return /^[a-zA-Z0-9_.:-]{1,100}$/.test(normalized) ? normalized : undefined;
+}
+
+function maskProviderRequestId(value: string | null): string | undefined {
+  if (!value) return undefined;
+  return value.length <= 8 ? '[MASKED]' : `${value.slice(0, 4)}***${value.slice(-4)}`;
+}
+
+function stringMetadata(
+  metadata: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  const value = metadata?.[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function numberMetadata(
+  metadata: Record<string, unknown> | undefined,
+  ...keys: string[]
+): number | undefined {
+  for (const key of keys) {
+    const value = metadata?.[key];
+    if (typeof value === 'number') return value;
+  }
+  return undefined;
 }

@@ -98,14 +98,31 @@ describe('GroqProvider', () => {
   });
 
   it.each([
+    [400, 'GROQ_BAD_REQUEST'],
+    [401, 'GROQ_AUTH_ERROR'],
+    [403, 'GROQ_AUTH_ERROR'],
+    [404, 'GROQ_MODEL_OR_ENDPOINT_ERROR'],
+    [422, 'GROQ_BAD_REQUEST'],
     [429, 'GROQ_RATE_LIMIT'],
     [500, 'GROQ_UPSTREAM_ERROR'],
     [503, 'GROQ_UPSTREAM_ERROR']
   ])('mapeia HTTP %s para %s', async (status, code) => {
-    mockResponse({}, status, { 'retry-after': '12', 'x-ratelimit-remaining-tokens': '0' });
+    mockResponse({ error: { type: 'invalid_request_error', code: 'schema_invalid' } }, status, {
+      'retry-after': '12',
+      'x-ratelimit-remaining-tokens': '0',
+      'x-request-id': 'request-123456789'
+    });
     await expect(
       new GroqProvider(config()).generateReply({ requestId: 'error-request', message: 'oi' })
-    ).rejects.toMatchObject({ code });
+    ).rejects.toMatchObject({
+      code,
+      metadata: {
+        http_status: status,
+        groq_error_type: 'invalid_request_error',
+        groq_error_code: 'schema_invalid',
+        provider_request_id: 'requ***6789'
+      }
+    });
   });
 
   it('mapeia timeout sem retry infinito', async () => {
