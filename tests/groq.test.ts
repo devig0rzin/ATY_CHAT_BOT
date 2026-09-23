@@ -124,7 +124,7 @@ describe('GroqProvider', () => {
     ).generateReply({
       requestId: 'groq-vision-request',
       message: '[Imagem recebida]',
-      image: { url: 'https://media.example.test/image.jpg', mimeType: 'image/jpeg' }
+      image: { dataUrl: 'data:image/jpeg;base64,/9j/', mimeType: 'image/jpeg' }
     });
 
     const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
@@ -135,7 +135,7 @@ describe('GroqProvider', () => {
       expect.objectContaining({ type: 'text' }),
       expect.objectContaining({
         type: 'image_url',
-        image_url: { url: 'https://media.example.test/image.jpg' }
+        image_url: { url: 'data:image/jpeg;base64,/9j/' }
       })
     ]);
   });

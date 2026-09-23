@@ -16,7 +16,7 @@ interface GroqContext {
   };
   recent?: Array<{ direction: string; content: string | null }>;
   image?: {
-    url: string;
+    dataUrl: string;
     mimeType: string;
   };
 }
@@ -134,7 +134,7 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
                   { type: 'text', text: buildConversationInput(context) },
                   {
                     type: 'image_url',
-                    image_url: { url: context.image.url }
+                    image_url: { url: context.image.dataUrl }
                   }
                 ]
               : buildConversationInput(context)

@@ -356,8 +356,10 @@ export class WebhookService {
         requestId,
         memory,
         recent,
-        ...(inbound.imageMedia?.url && inbound.imageMedia.mimeType
-          ? { image: { url: inbound.imageMedia.url, mimeType: inbound.imageMedia.mimeType } }
+        ...(inbound.imageMedia?.dataUrl && inbound.imageMedia.mimeType
+          ? {
+              image: { dataUrl: inbound.imageMedia.dataUrl, mimeType: inbound.imageMedia.mimeType }
+            }
           : {})
       })
     );
@@ -781,7 +783,7 @@ export class WebhookService {
     });
     let imageMedia = inbound.imageMedia;
     const mediaDownloadId = inbound.mediaDownloadId ?? inbound.messageId;
-    if (!imageMedia && mediaDownloadId) {
+    if (mediaDownloadId) {
       try {
         imageMedia = await new UazapiMediaResolver(getConfig(this.env), requestId).resolveImage(
           mediaDownloadId
@@ -803,7 +805,7 @@ export class WebhookService {
         return { fallback: await this.sendImageFallback(inbound, persistent) };
       }
     }
-    if (!imageMedia) {
+    if (!imageMedia?.dataUrl) {
       const error = new AppError({
         code: 'IMAGE_MEDIA_DOWNLOAD_ERROR',
         httpStatus: 502,

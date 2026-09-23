@@ -24,6 +24,7 @@ export interface NormalizedUazapiInboundMessage {
   audioMediaStatus?: 'not_applicable' | 'unconfirmed' | 'resolved';
   imageMedia?: {
     url?: string;
+    dataUrl?: string;
     mimeType?: string;
   };
   imageMediaStatus?: 'not_applicable' | 'unconfirmed' | 'resolved';
