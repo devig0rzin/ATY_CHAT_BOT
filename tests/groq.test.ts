@@ -68,7 +68,7 @@ describe('GroqProvider', () => {
     });
 
     expect(result).toMatchObject(validDecision);
-    const [, init] = fetch.mock.calls[0] as [string, RequestInit];
+    const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe('openai/gpt-oss-20b');
     expect(body.reasoning_effort).toBe('low');
@@ -97,12 +97,8 @@ describe('GroqProvider', () => {
     expect(provider).toBeInstanceOf(GroqProvider);
   });
 
-  it('usa o modelo de visÃ£o e uma imagem em base64 sem alterar o modelo de texto', async () => {
-    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
-      if (url === 'https://media.example.test/image.jpg') {
-        expect(init?.headers).toMatchObject({ token: 'uazapi-secret' });
-        return new Response(new Uint8Array([255, 216, 255]), { status: 200 });
-      }
+  it('usa o modelo de visÃ£o e a URL temporÃ¡ria da imagem sem alterar o modelo de texto', async () => {
+    const fetch = vi.fn(async (url: string) => {
       if (url.endsWith('/chat/completions')) {
         return new Response(
           JSON.stringify({
@@ -131,7 +127,7 @@ describe('GroqProvider', () => {
       image: { url: 'https://media.example.test/image.jpg', mimeType: 'image/jpeg' }
     });
 
-    const [, init] = fetch.mock.calls[1] as [string, RequestInit];
+    const [, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe('qwen/qwen3.8-27b');
     expect(body.response_format).toEqual({ type: 'json_object' });
@@ -139,7 +135,7 @@ describe('GroqProvider', () => {
       expect.objectContaining({ type: 'text' }),
       expect.objectContaining({
         type: 'image_url',
-        image_url: { url: 'data:image/jpeg;base64,/9j/' }
+        image_url: { url: 'https://media.example.test/image.jpg' }
       })
     ]);
   });

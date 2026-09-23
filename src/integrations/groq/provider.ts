@@ -134,7 +134,7 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
                   { type: 'text', text: buildConversationInput(context) },
                   {
                     type: 'image_url',
-                    image_url: { url: await loadImageAsDataUrl(context.image, config) }
+                    image_url: { url: context.image.url }
                   }
                 ]
               : buildConversationInput(context)
@@ -278,54 +278,6 @@ async function createCompletion(config: AppConfig, context: GroqContext): Promis
 
 function requestedModel(config: AppConfig, context: GroqContext): string {
   return context.image ? config.GROQ_VISION_MODEL : config.GROQ_MODEL;
-}
-
-async function loadImageAsDataUrl(
-  image: NonNullable<GroqContext['image']>,
-  config: AppConfig
-): Promise<string> {
-  const mimeType = image.mimeType.trim().toLowerCase();
-  if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(mimeType)) {
-    throw new AppError({
-      code: 'IMAGE_UNSUPPORTED_FORMAT',
-      httpStatus: 415,
-      safeMessage: 'Image format is not supported',
-      metadata: { mime_type: mimeType }
-    });
-  }
-  let response: Response;
-  try {
-    response = await fetch(image.url, {
-      headers: config.UAZAPI_TOKEN ? { token: config.UAZAPI_TOKEN } : undefined
-    });
-  } catch (cause) {
-    throw new AppError({
-      code: 'IMAGE_MEDIA_DOWNLOAD_ERROR',
-      httpStatus: 502,
-      safeMessage: 'Image media download failed',
-      cause
-    });
-  }
-  if (!response.ok) {
-    throw new AppError({
-      code: 'IMAGE_MEDIA_DOWNLOAD_ERROR',
-      httpStatus: 502,
-      safeMessage: 'Image media download failed',
-      metadata: { status: response.status }
-    });
-  }
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (bytes.byteLength === 0 || bytes.byteLength > config.GROQ_VISION_MAX_BYTES) {
-    throw new AppError({
-      code: 'IMAGE_TOO_LARGE',
-      httpStatus: 413,
-      safeMessage: 'Image file is too large',
-      metadata: { size_bytes: bytes.byteLength }
-    });
-  }
-  let binary = '';
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return `data:${mimeType};base64,${btoa(binary)}`;
 }
 
 function parseDecision(completion: GroqCompletion): AIDecision {
